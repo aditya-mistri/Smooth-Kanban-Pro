@@ -13,6 +13,12 @@ const sequelize = new Sequelize(process.env.DATABASE_URL, {
       rejectUnauthorized: false,
     },
   },
+  pool: {
+    max: 10,
+    min: 0,
+    idle: 10000,
+  },
+  keepAlive: true,
 });
 
 export default sequelize;
