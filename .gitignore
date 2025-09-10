@@ -1,0 +1,64 @@
+# ────────────────
+# Node.js & npm
+# ────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+*.tsbuildinfo
+
+# ────────────────
+# Logs
+# ────────────────
+logs
+*.log
+*.log.*
+.log
+
+# ────────────────
+# Environment files
+# ────────────────
+# Keep .env.example but ignore real secrets
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+# ────────────────
+# Build artifacts
+# ────────────────
+dist/
+build/
+*.cache/
+.cache/
+
+# ────────────────
+# Vite specific
+# ────────────────
+*.vite/
+vite.config.timestamp-*.mjs
+
+# ────────────────
+# Docker
+# ────────────────
+.dockerignore
+
+# ────────────────
+# Editor & System files
+# ────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ────────────────
+# Project specific
+# ────────────────
+# Ignore client & server build + env files
+client/dist/
+client/.env
+server/.env

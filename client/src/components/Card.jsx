@@ -1,16 +1,16 @@
 import React, { useState } from "react";
 import api from "../services/api";
 
-const Card = ({ card, onDelete, onUpdate }) => {
+const Card = ({ card }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(card.title);
   const [description, setDescription] = useState(card.description || "");
 
   const handleSave = async () => {
     try {
-      const updatedCard = await api.updateCard(card.id, { title, description });
+      await api.updateCard(card.id, { title, description });
+      // Socket will broadcast card_updated
       setIsEditing(false);
-      onUpdate(updatedCard.data);
     } catch (error) {
       console.error("Error updating card:", error);
     }
@@ -19,7 +19,7 @@ const Card = ({ card, onDelete, onUpdate }) => {
   const handleDelete = async () => {
     try {
       await api.deleteCard(card.id);
-      onDelete?.(card.id);
+      // Socket will broadcast card_deleted
     } catch (error) {
       console.error("Error deleting card:", error);
     }

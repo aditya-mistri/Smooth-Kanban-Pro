@@ -1,43 +1,44 @@
-- kanban-app
-  - .dockerignore
-  - client
-    - .env
-    - .env.example
-    - dist
-      - assets
-        - index-3faf8029.js
-        - index-de406f58.css
-      - index.html
+- .dockerignore
+- client
+  - .env
+  - .env.example
+  - dist
+    - assets
+      - index-5d6571c6.css
+      - index-afeb7312.js
     - index.html
-    - package-lock.json
-    - package.json
-    - src
-      - App.css
-      - App.jsx
-      - components
-        - BoardView.jsx
-        - Card.jsx
-        - Column.jsx
-      - main.jsx
-      - services
-        - api.js
-    - vite.config.js
-  - DEPLOYMENT.md
-  - Dockerfile
-  - server
-    - .env
-    - .env.example
-    - config
-      - database.js
+  - index.html
+  - package-lock.json
+  - package.json
+  - src
+    - App.css
+    - App.jsx
+    - components
+      - BoardView.jsx
+      - Card.jsx
+      - Column.jsx
+    - main.jsx
+    - services
+      - api.js
+      - socket.js
+  - vite.config.js
+- DEPLOYMENT.md
+- Dockerfile
+- project_structure.text
+- server
+  - .env
+  - .env.example
+  - config
+    - database.js
+  - index.js
+  - models
+    - Board.js
+    - Card.js
+    - Column.js
     - index.js
-    - models
-      - Board.js
-      - Card.js
-      - Column.js
-      - index.js
-    - package-lock.json
-    - package.json
-    - routes
-      - boards.js
-      - cards.js
-      - columns.js
+  - package-lock.json
+  - package.json
+  - routes
+    - boards.js
+    - cards.js
+    - columns.js
