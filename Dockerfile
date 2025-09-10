@@ -11,6 +11,11 @@ RUN npm install
 # Copy client source code
 COPY client/ ./
 
+# 👇 Accept build-time ARG (for Render, maps from environment variable)
+ARG VITE_API_URL
+# 👇 Export it so vite sees it at build time
+ENV VITE_API_URL=${VITE_API_URL}
+
 # Build the React frontend
 RUN npm run build
 
