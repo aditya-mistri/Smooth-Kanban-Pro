@@ -4,20 +4,26 @@ import Card from "./Card.js";
 
 // Board has many Columns
 Board.hasMany(Column, {
-  foreignKey: "boardId",
+  foreignKey: "BoardId", // Fixed: capital B
   onDelete: "CASCADE",
+  as: "Columns" // Optional alias for clarity
 });
+
 Column.belongsTo(Board, {
-  foreignKey: "boardId",
+  foreignKey: "BoardId", // Fixed: capital B
+  as: "Board" // Optional alias for clarity
 });
 
 // Column has many Cards
 Column.hasMany(Card, {
-  foreignKey: "columnId",
+  foreignKey: "ColumnId", // Fixed: capital C
   onDelete: "CASCADE",
+  as: "Cards" // Optional alias for clarity
 });
+
 Card.belongsTo(Column, {
-  foreignKey: "columnId",
+  foreignKey: "ColumnId", // Fixed: capital C
+  as: "Column" // Optional alias for clarity
 });
 
 export { Board, Column, Card };

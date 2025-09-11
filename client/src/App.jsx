@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import BoardView from "./components/BoardView";
 import api from "./services/api";
 import "./App.css";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 function App() {
   const [board, setBoard] = useState(null);
@@ -48,14 +49,58 @@ function App() {
     initializeBoard();
   }, []);
 
-  if (error) return <div className="app-message error">Error: {error}</div>;
-  if (isLoading) return <div className="app-message">Loading...</div>;
-  if (!board) return <div className="app-message">No board found</div>;
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white p-8 rounded-lg shadow-md border border-gray-200 text-center max-w-md mx-4">
+          <div className="text-red-600 text-4xl mb-4">⚠️</div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Error</h2>
+          <p className="text-gray-600 mb-4">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-blue-600 text-white font-medium rounded hover:bg-blue-700 transition-colors"
+          >
+            Reload Page
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white p-8 rounded-lg shadow-md border border-gray-200 text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mb-4"></div>
+          <h2 className="text-lg font-medium text-gray-900 mb-2">Loading Board</h2>
+          <p className="text-gray-600">Please wait while we set up your workspace...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!board) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white p-8 rounded-lg shadow-md border border-gray-200 text-center">
+          <div className="text-gray-400 text-4xl mb-4">📋</div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">No Board Found</h2>
+          <p className="text-gray-600">Unable to load or create a board.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="app">
-      <BoardView board={board} setBoard={setBoard} />
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/board/:id" element={<BoardView />} />
+        {/* Redirect root path to the board */}
+        <Route path="/" element={<Navigate to={`/board/${board.id}`} replace />} />
+        {/* Catch all other routes and redirect to board */}
+        <Route path="*" element={<Navigate to={`/board/${board.id}`} replace />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 

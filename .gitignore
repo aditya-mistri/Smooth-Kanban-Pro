@@ -1,64 +1,57 @@
-# ────────────────
-# Node.js & npm
-# ────────────────
-node_modules/
+# ------------------------
+# Node.js dependencies
+# ------------------------
+client/node_modules/
+server/node_modules/
+
+# ------------------------
+# Build outputs
+# ------------------------
+client/dist/
+server/dist/
+client/build/
+server/build/
+
+# ------------------------
+# Logs
+# ------------------------
 npm-debug.log*
-yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-package-lock.json
-*.tsbuildinfo
-
-# ────────────────
-# Logs
-# ────────────────
-logs
+logs/
 *.log
-*.log.*
-.log
 
-# ────────────────
-# Environment files
-# ────────────────
-# Keep .env.example but ignore real secrets
+# ------------------------
+# Environment
+# ------------------------
 .env
 .env.local
-.env.development
-.env.production
-.env.test
+client/.env
+server/.env
 
-# ────────────────
-# Build artifacts
-# ────────────────
-dist/
-build/
-*.cache/
-.cache/
+# Don’t ignore example env files
+!client/.env.example
+!server/.env.example
 
-# ────────────────
-# Vite specific
-# ────────────────
-*.vite/
-vite.config.timestamp-*.mjs
-
-# ────────────────
-# Docker
-# ────────────────
+# ------------------------
+# Docker (ignore local overrides / cache)
+# ------------------------
 .dockerignore
+docker-compose.override.yml
+docker-compose.dev.yml
+docker-compose.prod.yml
+*.tar
+*.pid
+.docker/
+tmp/
 
-# ────────────────
-# Editor & System files
-# ────────────────
-.vscode/
-.idea/
-*.swp
+# ------------------------
+# System files
+# ------------------------
 .DS_Store
 Thumbs.db
 
-# ────────────────
-# Project specific
-# ────────────────
-# Ignore client & server build + env files
-client/dist/
-client/.env
-server/.env
+# ------------------------
+# VS Code
+# ------------------------
+.vscode/

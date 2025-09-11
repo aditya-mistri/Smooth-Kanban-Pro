@@ -10,7 +10,14 @@ const Board = sequelize.define("Board", {
   name: {
     type: DataTypes.STRING,
     allowNull: false,
+    validate: {
+      notEmpty: true,
+      len: [1, 255]
+    }
   },
+}, {
+  tableName: 'boards',
+  timestamps: true
 });
 
 export default Board;

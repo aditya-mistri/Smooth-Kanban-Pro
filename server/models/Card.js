@@ -10,15 +10,37 @@ const Card = sequelize.define("Card", {
   title: {
     type: DataTypes.STRING,
     allowNull: false,
+    validate: {
+      notEmpty: true,
+      len: [1, 255]
+    }
   },
   description: {
     type: DataTypes.TEXT,
     allowNull: true,
   },
-  columnId: {
+  order: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 0,
+    validate: {
+      min: 0
+    }
+  },
+  ColumnId: {
     type: DataTypes.UUID,
     allowNull: false,
+    field: 'column_id' // Database column name
   },
+}, {
+  tableName: 'cards',
+  timestamps: true,
+  indexes: [
+    {
+      fields: ['column_id', 'order'], // Use database column names, not model attribute names
+      unique: true
+    }
+  ]
 });
 
 export default Card;

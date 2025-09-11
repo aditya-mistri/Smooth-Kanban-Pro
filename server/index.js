@@ -6,6 +6,11 @@ import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import sequelize from "./config/database.js";
+
+// Import models to ensure associations are set up
+import { Board, Column, Card } from "./models/index.js";
+
+// Import routes
 import boardRoutes from "./routes/boards.js";
 import columnRoutes from "./routes/columns.js";
 import cardRoutes from "./routes/cards.js";
@@ -16,11 +21,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const server = createServer(app); // <-- HTTP server
+const server = createServer(app);
 const io = new Server(server, {
   cors: {
     origin: "*", // allow frontend
-    methods: ["GET", "POST"]
+    methods: ["GET", "POST", "PUT", "DELETE"]
   }
 });
 
@@ -39,7 +44,7 @@ app.get("/health", (req, res) => {
 });
 
 // API Routes
-app.use("/api/boards", boardRoutes(io));   // pass io
+app.use("/api/boards", boardRoutes(io));
 app.use("/api/columns", columnRoutes(io));
 app.use("/api/cards", cardRoutes(io));
 
@@ -68,4 +73,7 @@ sequelize.sync().then(() => {
   server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });
+}).catch((error) => {
+  console.error("Unable to sync database:", error);
+  process.exit(1);
 });
