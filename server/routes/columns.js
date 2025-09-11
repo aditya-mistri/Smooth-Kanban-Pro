@@ -32,6 +32,11 @@ export default function (io) {
         ],
       });
       io.to(column.BoardId.toString()).emit("board_updated", updatedBoard);
+      io.to(column.BoardId.toString()).emit("notification", {
+        type: "success",
+        message: `Column "${oldTitle}" renamed to "${column.title}".`,
+      });
+
 
       res.json(column);
     } catch (error) {
@@ -78,6 +83,10 @@ export default function (io) {
         ],
       });
       io.to(column.BoardId.toString()).emit("board_updated", updatedBoard);
+      io.to(column.BoardId.toString()).emit("notification", {
+        type: "success",
+        message: `New card "${card.title}" added to "${column.title}".`,
+      });
 
       res.status(201).json(card);
     } catch (error) {
@@ -125,6 +134,10 @@ export default function (io) {
       });
 
       io.to(BoardId.toString()).emit("board_updated", updatedBoard);
+      io.to(BoardId.toString()).emit("notification", {
+        type: "success",
+        message: `Column "${columnTitle}" was deleted.`,
+      });
       res.status(204).send();
     } catch (error) {
       if (

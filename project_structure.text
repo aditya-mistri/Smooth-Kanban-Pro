@@ -19,13 +19,13 @@
       - BoardView.jsx
       - Card.jsx
       - Column.jsx
+      - StrictDroppable.jsx
     - main.jsx
     - services
       - api.js
       - socket.js
   - tailwind.config.js
   - vite.config.js
-- DEPLOYMENT.md
 - Dockerfile
 - project_structure.text
 - server

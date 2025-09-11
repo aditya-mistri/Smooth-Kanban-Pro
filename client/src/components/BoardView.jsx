@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import Column from './Column';
 import api from '../services/api';
 import socketService from '../services/socket';
@@ -42,7 +43,6 @@ const BoardView = () => {
         socketService.joinBoard(id);
 
         const handleBoardUpdate = (updatedBoard) => {
-            console.log('Received board_updated event');
             const sortedBoard = {
                 ...updatedBoard,
                 Columns: updatedBoard.Columns.sort((a, b) => a.order - b.order).map(column => ({
@@ -52,20 +52,30 @@ const BoardView = () => {
             };
             setBoard(sortedBoard);
         };
-
         socketService.onBoardUpdated(handleBoardUpdate);
+
+        const handleNotification = ({ message, type }) => {
+            if (type === 'success') {
+                toast.success(message);
+            } else if (type === 'error') {
+                toast.error(message);
+            } else {
+                toast(message);
+            }
+        };
+        socketService.on('notification', handleNotification);
 
         return () => {
             socketService.leaveBoard(id);
             if (socketService.socket) {
                 socketService.socket.off("board_updated", handleBoardUpdate);
+                socketService.socket.off("notification", handleNotification);
             }
         };
     }, [id]);
 
     const onDragEnd = (result) => {
         const { destination, source, draggableId, type } = result;
-
         if (!destination) return;
         if (destination.droppableId === source.droppableId && destination.index === source.index) return;
 
@@ -74,50 +84,45 @@ const BoardView = () => {
             const [movedColumn] = newColumnOrder.splice(source.index, 1);
             newColumnOrder.splice(destination.index, 0, movedColumn);
             const orderedIds = newColumnOrder.map(col => col.id);
-
-            api.reorderColumns(board.id, orderedIds).catch(err => {
-                console.error("Failed to reorder columns", err);
-            });
+            api.reorderColumns(board.id, orderedIds).catch(err => console.error("Failed to reorder columns", err));
             return;
         }
 
         api.moveCard(draggableId, {
             newColumnId: destination.droppableId,
             newOrder: destination.index,
-        }).catch(err => {
-            console.error("Failed to move card", err);
-        });
+        }).catch(err => console.error("Failed to move card", err));
     };
-
+    
     const handleAddColumn = async () => {
-        if (!newColumnTitle.trim()) return;
-        setIsLoadingAction(true);
-        try {
-            await api.createColumn(id, { title: newColumnTitle.trim() });
-            setNewColumnTitle('');
-            setIsAddingColumn(false);
-        } catch (error) {
-            console.error('Error creating column:', error);
-        } finally {
-            setIsLoadingAction(false);
-        }
+      if (!newColumnTitle.trim()) return;
+      setIsLoadingAction(true);
+      try {
+        await api.createColumn(id, { title: newColumnTitle.trim() });
+        setNewColumnTitle('');
+        setIsAddingColumn(false);
+      } catch (error) {
+        console.error('Error creating column:', error);
+      } finally {
+        setIsLoadingAction(false);
+      }
     };
 
     const handleCancelAddColumn = () => {
-        setIsAddingColumn(false);
-        setNewColumnTitle('');
+      setIsAddingColumn(false);
+      setNewColumnTitle('');
     };
 
     const handleKeyPress = (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            handleAddColumn();
-        }
-        if (e.key === 'Escape') {
-            handleCancelAddColumn();
-        }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleAddColumn();
+      }
+      if (e.key === 'Escape') {
+        handleCancelAddColumn();
+      }
     };
-
+    
     if (loading) return <div>Loading...</div>;
     if (error) return <div>Error: {error}</div>;
 
@@ -129,9 +134,7 @@ const BoardView = () => {
                         <div className="flex items-center justify-between">
                             <div className="flex items-center">
                                 <div className="bg-blue-600 text-white p-2 rounded-lg mr-4">
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2M13 7a2 2 0 00-2-2H9a2 2 0 00-2 2v10a2 2 0 002 2h2a2 2 0 002-2" />
-                                    </svg>
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2M13 7a2 2 0 00-2-2H9a2 2 0 00-2 2v10a2 2 0 002 2h2a2 2 0 002-2" /></svg>
                                 </div>
                                 <div>
                                     <h1 className="text-2xl font-bold text-gray-900">{board?.name}</h1>

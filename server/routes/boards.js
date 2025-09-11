@@ -32,7 +32,7 @@ export default function (io) {
     }
   });
 
-  // Get a single board with columns and cards (No changes, already fixed)
+  // Get a single board with columns and cards (No changes)
   router.get("/:id", async (req, res) => {
     try {
       const board = await Board.findByPk(req.params.id, {
@@ -49,7 +49,7 @@ export default function (io) {
     }
   });
 
-  // ✅ UPDATED: Add a column to a board
+  // Add a column to a board
   router.post("/:id/columns", async (req, res) => {
     try {
       const { title } = req.body;
@@ -73,12 +73,17 @@ export default function (io) {
         order: nextOrder,
       });
 
-      // ✅ CHANGE: Fetch the full board and emit 'board_updated'
       const updatedBoard = await Board.findByPk(boardId, {
         include: [{ model: Column, as: "Columns", include: [{ model: Card, as: "Cards" }] }],
         order: [['Columns', 'order', 'ASC'], ['Columns', 'Cards', 'order', 'ASC']],
       });
       io.to(boardId).emit("board_updated", updatedBoard);
+
+      // ✅ NOTIFICATION ADDED
+      io.to(boardId).emit("notification", {
+        type: "success",
+        message: `New column "${column.title}" was added.`,
+      });
 
       res.status(201).json(column);
     } catch (error) {
@@ -87,7 +92,7 @@ export default function (io) {
     }
   });
 
-  // ✅ UPDATED: Update board name
+  // Update board name
   router.put("/:id", async (req, res) => {
     try {
       const { name } = req.body;
@@ -101,24 +106,29 @@ export default function (io) {
       if (!board) {
         return res.status(404).json({ error: "Board not found" });
       }
-
+      
       await board.update({ name: name.trim() });
-
-      // ✅ CHANGE: Fetch the full board with associations before emitting
+      
       const updatedBoard = await Board.findByPk(boardId, {
         include: [{ model: Column, as: "Columns", include: [{ model: Card, as: "Cards" }] }],
         order: [['Columns', 'order', 'ASC'], ['Columns', 'Cards', 'order', 'ASC']],
       });
       io.to(boardId).emit("board_updated", updatedBoard);
+      
+      // ✅ NOTIFICATION ADDED
+      io.to(boardId).emit("notification", {
+        type: "success",
+        message: `Board renamed to "${updatedBoard.name}".`,
+      });
 
-      res.json(updatedBoard); // Send back the full board object
+      res.json(updatedBoard);
     } catch (error) {
       console.error("Error updating board:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  // Reorder columns (No changes, already fixed)
+  // Reorder columns
   router.put("/:id/columns/reorder", async (req, res) => {
     const transaction = await sequelize.transaction();
     try {
@@ -137,6 +147,13 @@ export default function (io) {
         order: [['Columns', 'order', 'ASC'], ['Columns', 'Cards', 'order', 'ASC']],
       });
       io.to(req.params.id).emit("board_updated", updatedBoard);
+      
+      // ✅ NOTIFICATION ADDED
+      io.to(req.params.id).emit("notification", {
+        type: "success",
+        message: "Columns were successfully reordered.",
+      });
+
       res.status(200).json({ message: "Columns reordered successfully" });
     } catch (error) {
       if (transaction.finished !== 'commit' && transaction.finished !== 'rollback') {

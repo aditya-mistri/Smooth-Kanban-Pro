@@ -29,6 +29,10 @@ export default function (io) {
         ],
       });
       io.to(column.BoardId.toString()).emit("board_updated", updatedBoard);
+      io.to(column.BoardId.toString()).emit("notification", {
+          type: "success",
+          message: `Card "${card.title}" was updated.`,
+      });
       res.json(card);
     } catch (error) {
       console.error("Error updating card:", error);
@@ -182,6 +186,10 @@ export default function (io) {
         ],
       });
       io.to(String(boardId)).emit("board_updated", updatedBoard);
+      io.to(String(boardId)).emit("notification", {
+        type: "success",
+        message: `Card "${cardToMove.title}" moved to "${finalColumn.title}".`,
+      });
 
       // return the moved card (fresh)
       const moved = await Card.findByPk(id);
@@ -226,6 +234,10 @@ export default function (io) {
         ],
       });
       io.to(column.BoardId.toString()).emit("board_updated", updatedBoard);
+      io.to(column.BoardId.toString()).emit("notification", {
+          type: "success",
+          message: `Card "${cardTitle}" was deleted.`,
+      });
       res.status(204).send();
     } catch (error) {
       if (

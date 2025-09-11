@@ -3,6 +3,7 @@ import BoardView from "./components/BoardView";
 import api from "./services/api";
 import "./App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Toaster } from 'react-hot-toast';
 
 function App() {
   const [board, setBoard] = useState(null);
@@ -12,20 +13,12 @@ function App() {
   useEffect(() => {
     const initializeBoard = async () => {
       try {
-        // First, try to get existing boards
         const existingBoards = await api.getBoards();
-
         if (existingBoards.data && existingBoards.data.length > 0) {
-          // Use the most recent board
           const response = await api.getBoard(existingBoards.data[0].id);
           setBoard(response.data);
         } else {
-          // Create a new board if none exists
-          const newBoard = await api.createBoard({
-            name: "My Kanban Board",
-          });
-
-          // Create default columns
+          const newBoard = await api.createBoard({ name: "My Kanban Board" });
           const columns = ["To Do", "In Progress", "Done"];
           for (let i = 0; i < columns.length; i++) {
             await api.createColumn(newBoard.data.id, {
@@ -33,8 +26,6 @@ function App() {
               order: i,
             });
           }
-
-          // Fetch the complete board with columns
           const response = await api.getBoard(newBoard.data.id);
           setBoard(response.data);
         }
@@ -45,7 +36,6 @@ function App() {
         setIsLoading(false);
       }
     };
-
     initializeBoard();
   }, []);
 
@@ -92,15 +82,25 @@ function App() {
   }
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/board/:id" element={<BoardView />} />
-        {/* Redirect root path to the board */}
-        <Route path="/" element={<Navigate to={`/board/${board.id}`} replace />} />
-        {/* Catch all other routes and redirect to board */}
-        <Route path="*" element={<Navigate to={`/board/${board.id}`} replace />} />
-      </Routes>
-    </BrowserRouter>
+    <>
+      <Toaster
+        position="bottom-center"
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: '#333',
+            color: '#fff',
+          },
+        }}
+      />
+      <BrowserRouter>
+        <Routes>
+          <Route path="/board/:id" element={<BoardView />} />
+          <Route path="/" element={<Navigate to={`/board/${board.id}`} replace />} />
+          <Route path="*" element={<Navigate to={`/board/${board.id}`} replace />} />
+        </Routes>
+      </BrowserRouter>
+    </>
   );
 }
 

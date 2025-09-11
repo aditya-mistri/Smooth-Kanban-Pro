@@ -47,28 +47,24 @@ class SocketService {
     }
   }
 
-  // --- Main Event Listener ---
-  // We only need this one for board state updates now.
-  onBoardUpdated(callback) {
+  on(event, callback) {
     if (this.socket) {
-      this.socket.on("board_updated", callback);
+      this.socket.on(event, callback);
     }
   }
 
-  // You might keep these if you have a global dashboard view, for example.
+  onBoardUpdated(callback) {
+    this.on("board_updated", callback);
+  }
+
   onBoardCreated(callback) {
-    if (this.socket) {
-      this.socket.on("board_created", callback);
-    }
+    this.on("board_created", callback);
   }
 
   onBoardDeleted(callback) {
-    if (this.socket) {
-      this.socket.on("board_deleted", callback);
-    }
+    this.on("board_deleted", callback);
   }
 
-  // This is still needed to clean up listeners when the component unmounts.
   removeAllListeners() {
     if (this.socket) {
       this.socket.removeAllListeners();
