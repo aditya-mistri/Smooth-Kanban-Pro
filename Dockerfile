@@ -6,22 +6,23 @@ FROM node:20-alpine AS client-builder
 # Set working directory
 WORKDIR /app/client
 
-# Copy client package files and install deps
+# Copy package files and install dependencies
 COPY client/package*.json ./
 RUN npm install
 
-# Copy client source
+# Copy client source code
 COPY client/ ./
 
-# Accept build-time args from Render or default values
+# Set default build-time env for Vite
 ARG VITE_API_URL=/api
 ARG VITE_SOCKET_URL=/
-
-# Export to Vite build
 ENV VITE_API_URL=${VITE_API_URL}
 ENV VITE_SOCKET_URL=${VITE_SOCKET_URL}
 
-# Build the React frontend
+# Optional: copy .env.docker if you use one
+# COPY client/.env.docker .env
+
+# Build React frontend
 RUN npm run build
 
 # =========================
@@ -31,24 +32,24 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy server package files and install prod deps
+# Copy server package files and install production dependencies
 COPY server/package*.json ./
 RUN npm install --only=production
 
 # Copy server source code
 COPY server/ ./
 
-# Copy built React files into server's public folder
+# Copy React build to server's public folder
 COPY --from=client-builder /app/client/dist ./public
 
-# Set production environment
+# Set production env
 ENV NODE_ENV=production
 ENV PORT=5000
 
-# Expose server port
+# Expose port (Render uses this automatically)
 EXPOSE 5000
 
-# Use non-root user
+# Create non-root user for security
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 USER appuser
 
