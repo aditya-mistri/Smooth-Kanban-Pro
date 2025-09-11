@@ -5,8 +5,8 @@
   - .env.example
   - dist
     - assets
-      - index-5d6571c6.css
-      - index-afeb7312.js
+      - index-0772e514.css
+      - index-2a9d024d.js
     - index.html
   - index.html
   - package-lock.json
@@ -19,6 +19,7 @@
       - BoardView.jsx
       - Card.jsx
       - Column.jsx
+      - DashBoard.jsx
       - StrictDroppable.jsx
     - main.jsx
     - services
