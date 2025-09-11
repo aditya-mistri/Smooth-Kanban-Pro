@@ -1,8 +1,8 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import Dashboard from './components/Dashboard';
 import BoardView from './components/BoardView';
-import Dashboard from './pages/Dashboard';
 
 function App() {
   return (
@@ -31,3 +31,4 @@ function App() {
 }
 
 export default App;
+
