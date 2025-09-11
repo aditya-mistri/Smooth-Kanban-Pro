@@ -151,7 +151,7 @@ const BoardView = () => {
 
                 <StrictDroppable droppableId="all-columns" direction="horizontal" type="COLUMN">
                     {(provided) => (
-                        <div className="p-6 flex gap-6 overflow-x-auto pb-4" {...provided.droppableProps} ref={provided.innerRef}>
+                        <div className="p-6 flex items-start gap-6 overflow-x-auto pb-4" {...provided.droppableProps} ref={provided.innerRef}>
                             {board?.Columns?.map((column, index) => (
                                 <Column key={column.id} column={column} index={index} />
                             ))}
