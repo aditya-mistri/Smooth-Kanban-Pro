@@ -33,7 +33,7 @@ const Column = sequelize.define("Column", {
   timestamps: true,
   indexes: [
     {
-      fields: ['board_id', 'order'], // Use database column names, not model attribute names
+      fields: ['board_id', 'order'], // Use database column names
       unique: true
     }
   ]

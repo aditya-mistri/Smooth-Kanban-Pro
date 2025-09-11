@@ -5,7 +5,6 @@ import sequelize from "../config/database.js";
 export default function (io) {
   const router = express.Router();
 
-  // ✅ FIXED: Get all boards with correct association ordering
   router.get("/", async (req, res) => {
     try {
       const boards = await Board.findAll({
@@ -19,7 +18,6 @@ export default function (io) {
         }],
         order: [
             ['createdAt', 'DESC'],
-            // Use string aliases for ordering included models
             ['Columns', 'order', 'ASC'],
             ['Columns', 'Cards', 'order', 'ASC']
         ]
@@ -54,7 +52,6 @@ export default function (io) {
     }
   });
 
-  // ✅ FIXED: Get a single board with correct association ordering
   router.get("/:id", async (req, res) => {
     try {
       const board = await Board.findByPk(req.params.id, {
@@ -74,7 +71,6 @@ export default function (io) {
     }
   });
 
-  // ✅ FIXED: Add a column with correct association ordering in the updated board object
   router.post("/:id/columns", async (req, res) => {
     try {
       const { title } = req.body;
@@ -102,7 +98,6 @@ export default function (io) {
     }
   });
 
-  // ✅ FIXED: Update board with correct association ordering in the updated board object
   router.put("/:id", async (req, res) => {
     try {
       const { name } = req.body;
@@ -129,7 +124,6 @@ export default function (io) {
     }
   });
 
-  // ✅ FIXED: Reorder columns with correct association ordering in the updated board object
   router.put("/:id/columns/reorder", async (req, res) => {
     const transaction = await sequelize.transaction();
     try {

@@ -4,9 +4,7 @@ import toast from 'react-hot-toast';
 import api from '../services/api';
 import socketService from '../services/socket';
 
-// --- Helper Components ---
 
-// Simple Modal Component
 const Modal = ({ isOpen, onClose, title, children }) => {
     if (!isOpen) return null;
     return (
@@ -22,21 +20,18 @@ const Modal = ({ isOpen, onClose, title, children }) => {
     );
 };
 
-// Icon component for features
 const FeatureIcon = ({ children }) => (
     <div className="bg-blue-100 text-blue-600 rounded-lg w-10 h-10 flex items-center justify-center flex-shrink-0">
         {children}
     </div>
 );
 
-// --- Main Dashboard Component ---
 
 const Dashboard = () => {
     const [boards, setBoards] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     
-    // Modal & Form State
     const [isCreateModalOpen, setCreateModalOpen] = useState(false);
     const [isEditModalOpen, setEditModalOpen] = useState(false);
     const [isDeleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -66,7 +61,6 @@ const Dashboard = () => {
         };
         fetchBoards();
 
-        // Socket Event Handlers
         const handleBoardCreated = (newBoard) => {
             setBoards(prev => [newBoard, ...prev]);
             toast.success(`New board "${newBoard.name}" was created!`);

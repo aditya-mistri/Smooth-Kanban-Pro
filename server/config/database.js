@@ -5,7 +5,6 @@ dotenv.config();
 
 const isProd = process.env.NODE_ENV === "production";
 
-// Use DATABASE_URL if set (recommended for Render + Supabase)
 const connectionString = process.env.DATABASE_URL || null;
 
 const sequelize = connectionString

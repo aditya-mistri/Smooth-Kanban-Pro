@@ -68,7 +68,6 @@ export default function (io) {
         order: nextOrder,
       });
 
-      // ✅ CHANGE: Fetch the full board and emit 'board_updated'
       const updatedBoard = await Board.findByPk(column.BoardId, {
         include: [
           {
@@ -126,7 +125,6 @@ export default function (io) {
             ],
           },
         ],
-        // ✅ FINAL FIX: Use string aliases for the nested order path
         order: [
           ["Columns", "order", "ASC"],
           ["Columns", "Cards", "order", "ASC"],
