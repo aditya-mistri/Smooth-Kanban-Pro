@@ -1,7 +1,7 @@
 ## Real-Time Kanban Board By ADITYA MISTRI
 - > **A full-stack, collaborative task management application built with Node.js, Express, Sequelize, React, and Socket.IO. This project provides a seamless, real-time experience for managing tasks across multiple columns, with changes instantly reflected for all connected clients.**
 
-- > **I Have docker + Render for deployment of frontend and backend**
+- > **I Have used docker + Render for deployment of frontend and backend.**
 
 
 ## Development
