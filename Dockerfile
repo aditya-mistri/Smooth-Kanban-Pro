@@ -19,8 +19,6 @@ ARG VITE_SOCKET_URL=/
 ENV VITE_API_URL=${VITE_API_URL}
 ENV VITE_SOCKET_URL=${VITE_SOCKET_URL}
 
-# Optional: copy .env.docker if you use one
-# COPY client/.env.docker .env
 
 # Build React frontend
 RUN npm run build
@@ -46,14 +44,13 @@ COPY --from=client-builder /app/client/dist ./public
 ENV NODE_ENV=production
 ENV PORT=5000
 
-# Expose port (Render uses this automatically)
+# Expose port 
 EXPOSE 5000
 
 # Create non-root user for security
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 USER appuser
 
-# Health check (optional)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:5000/health || exit 1
 
