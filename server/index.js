@@ -22,33 +22,38 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = createServer(app);
+
+// Socket.IO setup
 const io = new Server(server, {
   cors: {
-    origin: "*", // allow frontend
-    methods: ["GET", "POST", "PUT", "DELETE"]
-  }
+    origin: process.env.CLIENT_URL || "*", // use CLIENT_URL in prod
+    methods: ["GET", "POST", "PUT", "DELETE"],
+  },
 });
 
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.CLIENT_URL || "*",
+  methods: ["GET", "POST", "PUT", "DELETE"],
+}));
 app.use(express.json());
 
-// Static React build
+// Serve React static files
 app.use(express.static(path.join(__dirname, "public")));
 
-// Health check
+// Health check endpoint
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "healthy" });
 });
 
-// API Routes
+// API Routes (pass io to routes for real-time updates)
 app.use("/api/boards", boardRoutes(io));
 app.use("/api/columns", columnRoutes(io));
 app.use("/api/cards", cardRoutes(io));
 
-// React fallback
+// Fallback to React for SPA routing
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
@@ -67,7 +72,7 @@ io.on("connection", (socket) => {
   });
 });
 
-// Start DB + server
+// Start database + server
 sequelize.sync().then(() => {
   console.log("Database synced");
   server.listen(PORT, () => {
@@ -77,3 +82,4 @@ sequelize.sync().then(() => {
   console.error("Unable to sync database:", error);
   process.exit(1);
 });
+
