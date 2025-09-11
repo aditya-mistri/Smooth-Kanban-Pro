@@ -28,6 +28,7 @@
   - vite.config.js
 - Dockerfile
 - project_structure.text
+- README.md
 - server
   - .env
   - .env.example

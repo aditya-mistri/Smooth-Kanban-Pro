@@ -23,30 +23,38 @@ apiClient.interceptors.response.use(
   }
 );
 
-const api = {
-  // Board operations
-  createBoard: (data) => apiClient.post("/boards", data),
-  getBoard: (id) => apiClient.get(`/boards/${id}`),
-  getBoards: () => apiClient.get("/boards"),
-  updateBoard: (id, data) => apiClient.put(`/boards/${id}`, data),
-  deleteBoard: (id) => apiClient.delete(`/boards/${id}`),
-  reorderColumns: (boardId, orderedIds) =>
-    apiClient.put(`/boards/${boardId}/columns/reorder`, { orderedIds }),
+// --- Board Endpoints ---
+const getAllBoards = () => apiClient.get('/boards');
+const getBoard = (id) => apiClient.get(`/boards/${id}`);
+const createBoard = (boardData) => apiClient.post('/boards', boardData);
+const updateBoard = (id, boardData) => apiClient.put(`/boards/${id}`, boardData);
+const deleteBoard = (id) => apiClient.delete(`/boards/${id}`);
+const reorderColumns = (boardId, orderedIds) => apiClient.put(`/boards/${boardId}/columns/reorder`, { orderedIds });
 
-  // Column operations
-  createColumn: (boardId, data) =>
-    apiClient.post(`/boards/${boardId}/columns`, data),
-  updateColumn: (id, data) => apiClient.put(`/columns/${id}`, data),
-  deleteColumn: (id) => apiClient.delete(`/columns/${id}`),
+// --- Column Endpoints ---
+const createColumn = (boardId, columnData) => apiClient.post(`/boards/${boardId}/columns`, columnData);
+const updateColumn = (id, columnData) => apiClient.put(`/columns/${id}`, columnData);
+const deleteColumn = (id) => apiClient.delete(`/columns/${id}`);
 
-  // Card operations
-  moveCard: (cardId, data) =>
-    apiClient.put(`/cards/${cardId}/move`, data),
-  createCard: (columnId, data) =>
-    apiClient.post(`/columns/${columnId}/cards`, data),
-  updateCard: (id, data) => apiClient.put(`/cards/${id}`, data),
-  deleteCard: (id) => apiClient.delete(`/cards/${id}`),
-  getCard: (id) => apiClient.get(`/cards/${id}`),
+// --- Card Endpoints ---
+const createCard = (columnId, cardData) => apiClient.post(`/columns/${columnId}/cards`, cardData);
+const updateCard = (id, cardData) => apiClient.put(`/cards/${id}`, cardData);
+const deleteCard = (id) => apiClient.delete(`/cards/${id}`);
+const moveCard = (cardId, moveData) => apiClient.put(`/cards/${cardId}/move`, moveData);
+
+
+export default {
+  getAllBoards,
+  getBoard,
+  createBoard,
+  updateBoard,
+  deleteBoard,
+  reorderColumns,
+  createColumn,
+  updateColumn,
+  deleteColumn,
+  createCard,
+  updateCard,
+  deleteCard,
+  moveCard
 };
-
-export default api;
