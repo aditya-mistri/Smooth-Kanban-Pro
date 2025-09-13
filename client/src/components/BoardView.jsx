@@ -1,194 +1,564 @@
-import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
-import toast from 'react-hot-toast';
-import Column from './Column';
-import api from '../services/api';
-import socketService from '../services/socket';
-import { DragDropContext } from 'react-beautiful-dnd';
-import { StrictDroppable } from './StrictDroppable';
+import React, { useState, useEffect, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
+import Column from "./Column";
+import api from "../services/api";
+import socketService from "../services/socket";
+import { DragDropContext } from "react-beautiful-dnd";
+import { StrictDroppable } from "./StrictDroppable";
+import CreateColumnForm from "./CreateColumnForm";
 
 const BoardView = () => {
-    const { id } = useParams();
-    const [board, setBoard] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [isAddingColumn, setIsAddingColumn] = useState(false);
-    const [newColumnTitle, setNewColumnTitle] = useState('');
-    const [isLoadingAction, setIsLoadingAction] = useState(false);
+  const { id } = useParams();
+  const navigate = useNavigate();
 
-    const fetchBoard = async () => {
-        try {
-            setLoading(true);
-            const response = await api.getBoard(id);
-            const sortedBoard = {
-                ...response.data,
-                Columns: response.data.Columns.sort((a, b) => a.order - b.order).map(column => ({
-                    ...column,
-                    Cards: column.Cards.sort((a, b) => a.order - b.order)
-                }))
-            };
-            setBoard(sortedBoard);
-            setError(null);
-        } catch (error) {
-            console.error('Error fetching board:', error);
-            setError('Failed to load board');
-        } finally {
-            setLoading(false);
-        }
+  const [board, setBoard] = useState(null);
+  const [members, setMembers] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const [isAddingColumn, setIsAddingColumn] = useState(false);
+  const [newColumnTitle, setNewColumnTitle] = useState("");
+  const [isLoadingAction, setIsLoadingAction] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+
+  const sortBoard = (data) => {
+    if (!data) return null;
+    return {
+      ...data,
+      Columns: [...(data.Columns || [])]
+        .sort((a, b) => a.order - b.order)
+        .map((col) => ({
+          ...col,
+          Cards: [...(col.Cards || [])].sort((a, b) => a.order - b.order),
+        })),
     };
+  };
 
-    useEffect(() => {
-        socketService.connect();
-        fetchBoard();
-        socketService.joinBoard(id);
+  // Fetch board + members + current user
+  const fetchBoard = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [boardRes, profileRes, membersRes] = await Promise.all([
+        api.getBoard(id),
+        api.getProfile(),
+        api.getBoardMembers(id),
+      ]);
+      setBoard(sortBoard(boardRes.data));
+      setCurrentUser(profileRes.data);
+      setMembers(membersRes.data || []);
+      setError(null);
+    } catch (err) {
+      console.error("[BoardView] Error fetching board:", err);
+      setError(
+        "Failed to load board. It might not exist or you may not have access."
+      );
+      toast.error("Failed to load board.");
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
 
-        const handleBoardUpdate = (updatedBoard) => {
-            const sortedBoard = {
-                ...updatedBoard,
-                Columns: updatedBoard.Columns.sort((a, b) => a.order - b.order).map(column => ({
-                    ...column,
-                    Cards: column.Cards.sort((a, b) => a.order - b.order)
-                }))
-            };
-            setBoard(sortedBoard);
-        };
-        socketService.onBoardUpdated(handleBoardUpdate);
+  // 🔹 Socket setup
+  useEffect(() => {
+    if (!socketService.socket) socketService.connect();
+    socketService.joinBoard(id);
+    fetchBoard();
 
-        const handleNotification = ({ message, type }) => {
-            if (type === 'success') {
-                toast.success(message);
-            } else if (type === 'error') {
-                toast.error(message);
-            } else {
-                toast(message);
-            }
-        };
-        socketService.on('notification', handleNotification);
+    socketService.on("board_updated", (updated) => {
+      if (updated.id === parseInt(id)) setBoard(sortBoard(updated));
+    });
+    socketService.on("column_created", fetchBoard);
+    socketService.on("card_created", fetchBoard);
+    socketService.on("card_updated", fetchBoard);
+    socketService.on("card_deleted", fetchBoard);
+    socketService.on("member_joined", fetchBoard);
+    socketService.on("member_removed", fetchBoard);
+    socketService.on("notification", ({ message, type }) => {
+      if (type === "success") toast.success(message);
+      else if (type === "error") toast.error(message);
+      else toast(message);
+    });
 
-        return () => {
-            socketService.leaveBoard(id);
-            if (socketService.socket) {
-                socketService.socket.off("board_updated", handleBoardUpdate);
-                socketService.socket.off("notification", handleNotification);
-            }
-        };
-    }, [id]);
-
-    const onDragEnd = (result) => {
-        const { destination, source, draggableId, type } = result;
-        if (!destination) return;
-        if (destination.droppableId === source.droppableId && destination.index === source.index) return;
-
-        if (type === 'COLUMN') {
-            const newColumnOrder = Array.from(board.Columns);
-            const [movedColumn] = newColumnOrder.splice(source.index, 1);
-            newColumnOrder.splice(destination.index, 0, movedColumn);
-            const orderedIds = newColumnOrder.map(col => col.id);
-            api.reorderColumns(board.id, orderedIds).catch(err => console.error("Failed to reorder columns", err));
-            return;
-        }
-
-        api.moveCard(draggableId, {
-            newColumnId: destination.droppableId,
-            newOrder: destination.index,
-        }).catch(err => console.error("Failed to move card", err));
+    return () => {
+      socketService.leaveBoard(id);
+      socketService.socket?.off();
     };
-    
-    const handleAddColumn = async () => {
-      if (!newColumnTitle.trim()) return;
-      setIsLoadingAction(true);
+  }, [id, fetchBoard]);
+
+  // 🔹 Drag & Drop handler with optimistic updates
+  const onDragEnd = async ({ destination, source, draggableId, type }) => {
+    if (
+      !destination ||
+      (destination.droppableId === source.droppableId &&
+        destination.index === source.index)
+    )
+      return;
+
+    if (type === "COLUMN") {
+      const newCols = Array.from(board.Columns);
+      const [moved] = newCols.splice(source.index, 1);
+      newCols.splice(destination.index, 0, moved);
+      setBoard({
+        ...board,
+        Columns: newCols.map((col, idx) => ({ ...col, order: idx })),
+      });
+
       try {
-        await api.createColumn(id, { title: newColumnTitle.trim() });
-        setNewColumnTitle('');
-        setIsAddingColumn(false);
-      } catch (error) {
-        console.error('Error creating column:', error);
-      } finally {
-        setIsLoadingAction(false);
+        await api.reorderColumns(
+          board.id,
+          newCols.map((c) => c.id)
+        );
+      } catch {
+        toast.error("Could not save column order.");
+        fetchBoard();
       }
-    };
+      return;
+    }
 
-    const handleCancelAddColumn = () => {
+    const srcColId = parseInt(source.droppableId);
+    const dstColId = parseInt(destination.droppableId);
+    const start = board.Columns.find((c) => c.id === srcColId);
+    const finish = board.Columns.find((c) => c.id === dstColId);
+    if (!start || !finish) return;
+
+    // Optimistic update
+    const draggedCard = start.Cards[source.index];
+    const newCols = board.Columns.map((col) => {
+      if (col.id === srcColId) {
+        const newCards = [...col.Cards];
+        newCards.splice(source.index, 1);
+        return { ...col, Cards: newCards };
+      }
+      if (col.id === dstColId) {
+        const newCards = [...col.Cards];
+        newCards.splice(destination.index, 0, draggedCard);
+        return { ...col, Cards: newCards };
+      }
+      return col;
+    });
+
+    setBoard({ ...board, Columns: newCols });
+
+    try {
+      await api.moveCard(draggableId, {
+        newColumnId: dstColId,
+        newOrder: destination.index,
+      });
+      toast.success("Card moved successfully");
+    } catch {
+      toast.error("Could not move card.");
+      fetchBoard();
+    }
+  };
+
+  // 🔹 Column + Card CRUD handlers
+  const handleAddColumn = async () => {
+    if (!newColumnTitle.trim()) return;
+    setIsLoadingAction(true);
+    try {
+      await api.createColumn(id, { title: newColumnTitle.trim() });
+      setNewColumnTitle("");
       setIsAddingColumn(false);
-      setNewColumnTitle('');
-    };
+      toast.success("Column created!");
+      fetchBoard();
+    } catch (err) {
+      toast.error(err.response?.data?.error || "Failed to create column.");
+    } finally {
+      setIsLoadingAction(false);
+    }
+  };
 
-    const handleKeyPress = (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        handleAddColumn();
-      }
-      if (e.key === 'Escape') {
-        handleCancelAddColumn();
-      }
-    };
-    
-    if (loading) return <div>Loading...</div>;
-    if (error) return <div>Error: {error}</div>;
+  const handleCardCreated = (columnId, newCard) => {
+    setBoard((prevBoard) => ({
+      ...prevBoard,
+      Columns: prevBoard.Columns.map((col) =>
+        col.id === columnId
+          ? { ...col, Cards: [...(col.Cards || []), newCard] }
+          : col
+      ),
+    }));
+  };
 
+  const handleCardUpdated = (cardId, updatedCard) => {
+    setBoard((prevBoard) => ({
+      ...prevBoard,
+      Columns: prevBoard.Columns.map((col) => ({
+        ...col,
+        Cards: col.Cards.map((card) =>
+          card.id === cardId ? { ...card, ...updatedCard } : card
+        ),
+      })),
+    }));
+  };
+
+  const handleCardDeleted = (cardId) => {
+    setBoard((prevBoard) => ({
+      ...prevBoard,
+      Columns: prevBoard.Columns.map((col) => ({
+        ...col,
+        Cards: col.Cards.filter((card) => card.id !== cardId),
+      })),
+    }));
+  };
+
+  const handleColumnUpdated = (columnId, updatedColumn) => {
+    setBoard((prevBoard) => ({
+      ...prevBoard,
+      Columns: prevBoard.Columns.map((col) =>
+        col.id === columnId ? { ...col, ...updatedColumn } : col
+      ),
+    }));
+  };
+
+  const handleColumnDeleted = (columnId) => {
+    setBoard((prevBoard) => ({
+      ...prevBoard,
+      Columns: prevBoard.Columns.filter((col) => col.id !== columnId),
+    }));
+  };
+
+  // 🔹 Member management
+  const isOwner = board?.ownerId === currentUser?.id;
+  const isAdmin = currentUser?.role === "admin";
+  const canManageBoard = isOwner || isAdmin;
+
+  const handleInvite = async () => {
+    if (!inviteEmail.trim()) return;
+    try {
+      await api.inviteToBoard(id, inviteEmail);
+      toast.success("User invited!");
+      setInviteEmail("");
+    } catch (err) {
+      toast.error(err.response?.data?.error || "Failed to invite user.");
+    }
+  };
+
+  const handleRemoveMember = async (userId) => {
+    try {
+      await api.removeBoardMember(id, userId);
+      toast.success("Member removed.");
+    } catch (err) {
+      toast.error(err.response?.data?.error || "Failed to remove member.");
+    }
+  };
+
+  const handleLeaveBoard = async () => {
+    if (isOwner) {
+      toast.error("Board owners cannot leave. Transfer ownership first.");
+      return;
+    }
+    if (window.confirm("Are you sure you want to leave this board?")) {
+      try {
+        await api.leaveBoard(id);
+        toast.success("You left the board.");
+        navigate("/dashboard");
+      } catch (err) {
+        toast.error(err.response?.data?.error || "Failed to leave board.");
+      }
+    }
+  };
+
+  const handleTransferOwnership = async (newOwnerId) => {
+    if (
+      window.confirm(
+        "Are you sure you want to transfer ownership? This cannot be undone."
+      )
+    ) {
+      try {
+        await api.transferBoardOwnership(id, newOwnerId);
+        toast.success("Ownership transferred.");
+        fetchBoard();
+      } catch (err) {
+        toast.error(
+          err.response?.data?.error || "Failed to transfer ownership."
+        );
+      }
+    }
+  };
+
+  // 🔹 Loading & Error states
+  if (loading) {
     return (
-        <DragDropContext onDragEnd={onDragEnd}>
-            <div className="min-h-screen bg-slate-100">
-                <div className="bg-white shadow-sm border-b border-gray-300">
-                    <div className="px-6 py-4">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center">
-                                <div className="bg-blue-600 text-white p-2 rounded-lg mr-4">
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2M13 7a2 2 0 00-2-2H9a2 2 0 00-2 2v10a2 2 0 002 2h2a2 2 0 002-2" /></svg>
-                                </div>
-                                <div>
-                                    <h1 className="text-2xl font-bold text-gray-900">{board?.name}</h1>
-                                    <p className="text-sm text-gray-600 mt-1">Project Management Board</p>
-                                </div>
-                            </div>
-                            <div className="bg-gray-50 px-4 py-2 rounded-lg border border-gray-200">
-                                <div className="text-sm font-medium text-gray-700">{board?.Columns?.length || 0} Columns</div>
-                                <div className="text-xs text-gray-500">{board?.Columns?.reduce((total, col) => total + (col.Cards?.length || 0), 0)} Total Cards</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <StrictDroppable droppableId="all-columns" direction="horizontal" type="COLUMN">
-                    {(provided) => (
-                        <div className="p-6 flex items-start gap-6 overflow-x-auto pb-4" {...provided.droppableProps} ref={provided.innerRef}>
-                            {board?.Columns?.map((column, index) => (
-                                <Column key={column.id} column={column} index={index} />
-                            ))}
-                            {provided.placeholder}
-                            {isAddingColumn ? (
-                                <div className="bg-white rounded-lg shadow-md border border-gray-200 p-6 w-80 flex-shrink-0">
-                                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Add New Column</h3>
-                                    <div className="space-y-4">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">Column Title</label>
-                                            <input type="text" value={newColumnTitle} onChange={(e) => setNewColumnTitle(e.target.value)} onKeyDown={handleKeyPress} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Enter column title..." disabled={isLoadingAction} autoFocus />
-                                        </div>
-                                        <div className="flex gap-3">
-                                            <button onClick={handleAddColumn} disabled={isLoadingAction || !newColumnTitle.trim()} className="flex-1 px-4 py-2 bg-blue-600 text-white font-medium rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">{isLoadingAction ? 'Adding...' : 'Add Column'}</button>
-                                            <button onClick={handleCancelAddColumn} disabled={isLoadingAction} className="px-4 py-2 bg-gray-200 text-gray-700 font-medium rounded hover:bg-gray-300 disabled:opacity-50 transition-colors">Cancel</button>
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="flex-shrink-0">
-                                    <button onClick={() => setIsAddingColumn(true)} className="bg-white border-2 border-dashed border-gray-300 hover:border-blue-400 text-gray-600 hover:text-blue-600 rounded-lg p-6 w-80 text-center transition-all duration-200 group">
-                                        <div className="space-y-2">
-                                            <div className="bg-gray-100 group-hover:bg-blue-50 w-12 h-12 rounded-full flex items-center justify-center mx-auto transition-colors">
-                                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                                            </div>
-                                            <div className="font-medium">Add Column</div>
-                                            <div className="text-sm text-gray-500">Create a new column for your tasks</div>
-                                        </div>
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </StrictDroppable>
-            </div>
-        </DragDropContext>
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
     );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-red-600 mb-4">{error}</p>
+          <button
+            onClick={fetchBoard}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!board) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-gray-600">Board not found</p>
+      </div>
+    );
+  }
+
+  return (
+    <DragDropContext onDragEnd={onDragEnd}>
+      <div className="min-h-screen bg-slate-100 p-6">
+        {/* Board Header */}
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">{board.name}</h1>
+            {board.description && (
+              <p className="text-gray-600 mt-2">{board.description}</p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Members:</span>
+            <div className="flex -space-x-2">
+              {members.slice(0, 5).map((member) => (
+                <div
+                  key={member.id}
+                  className="w-8 h-8 rounded-full bg-blue-500 text-white text-sm flex items-center justify-center border-2 border-white shadow-sm"
+                  title={member.name || member.User?.name}
+                >
+                  {String(member.name || member.User?.name || "")
+                    .charAt(0)
+                    .toUpperCase()}
+                </div>
+              ))}
+              {members.length > 5 && (
+                <div className="w-8 h-8 rounded-full bg-gray-500 text-white text-xs flex items-center justify-center border-2 border-white shadow-sm">
+                  +{members.length - 5}
+                </div>
+              )}
+            </div>
+            <span className="text-sm text-gray-500">({members.length})</span>
+            <button
+              onClick={() => setShowMembers(true)}
+              className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-600 rounded hover:bg-blue-200"
+            >
+              Manage
+            </button>
+          </div>
+        </div>
+
+        {/* Columns */}
+        <StrictDroppable
+          droppableId="all-columns"
+          direction="horizontal"
+          type="COLUMN"
+        >
+          {(provided) => (
+            <div
+              className="flex gap-6 overflow-x-auto pb-4"
+              {...provided.droppableProps}
+              ref={provided.innerRef}
+            >
+              {board.Columns.map((column, index) => (
+                <Column
+                  key={column.id}
+                  column={column}
+                  index={index}
+                  canManageBoard={canManageBoard}
+                  members={members}
+                  onColumnUpdated={handleColumnUpdated}
+                  onColumnDeleted={handleColumnDeleted}
+                  onCardCreated={handleCardCreated}
+                  onCardUpdated={handleCardUpdated}
+                  onCardDeleted={handleCardDeleted}
+                />
+              ))}
+              {provided.placeholder}
+
+              {/* Add Column Section */}
+              {canManageBoard && (
+                <>
+                  {isAddingColumn ? (
+                    <div className="bg-white rounded-lg shadow-md border border-gray-200 p-6 w-80 flex-shrink-0">
+                      <h3 className="text-lg font-semibold mb-4">
+                        Add New Column
+                      </h3>
+                      <input
+                        type="text"
+                        value={newColumnTitle}
+                        onChange={(e) => setNewColumnTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleAddColumn();
+                          if (e.key === "Escape") setIsAddingColumn(false);
+                        }}
+                        placeholder="Enter column title..."
+                        className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        disabled={isLoadingAction}
+                        autoFocus
+                      />
+                      <div className="flex gap-3 mt-4">
+                        <button
+                          onClick={handleAddColumn}
+                          disabled={isLoadingAction || !newColumnTitle.trim()}
+                          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isLoadingAction ? "Adding..." : "Add Column"}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setIsAddingColumn(false);
+                            setNewColumnTitle("");
+                          }}
+                          className="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setIsAddingColumn(true)}
+                      className="bg-white border-2 border-dashed border-gray-300 hover:border-blue-400 hover:bg-gray-50 p-6 w-80 text-center rounded-lg transition-colors group"
+                    >
+                      <div className="text-gray-500 group-hover:text-blue-500">
+                        <svg
+                          className="w-8 h-8 mx-auto mb-2"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                          ></path>
+                        </svg>
+                        Add Column
+                      </div>
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </StrictDroppable>
+
+        {/* Members Modal */}
+        {showMembers && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md max-h-96 overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold">Board Members</h2>
+                <button
+                  onClick={() => setShowMembers(false)}
+                  className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="mb-4 max-h-48 overflow-y-auto">
+                {members.length > 0 ? (
+                  <ul className="space-y-2">
+                    {members.map((member) => (
+                      <li
+                        key={member.id}
+                        className="flex justify-between items-center p-2 bg-gray-50 rounded"
+                      >
+                        <div>
+                          <span className="font-medium">
+                            {member.User?.name || member.name || "Unknown"}
+                          </span>
+                          <br />
+                          <span className="text-sm text-gray-600">
+                            {member.User?.email || member.email}
+                          </span>
+                          {board?.ownerId === member.userId && (
+                            <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
+                              Owner
+                            </span>
+                          )}
+                        </div>
+                        {canManageBoard && board?.ownerId !== member.userId && (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleRemoveMember(member.userId)}
+                              className="text-red-500 hover:text-red-700 text-sm"
+                            >
+                              Remove
+                            </button>
+                            {isOwner && (
+                              <button
+                                onClick={() =>
+                                  handleTransferOwnership(member.userId)
+                                }
+                                className="text-blue-600 hover:text-blue-800 text-sm"
+                              >
+                                Make Owner
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-gray-500 text-center py-4">
+                    No members found
+                  </p>
+                )}
+              </div>
+              {canManageBoard && (
+                <div className="border-t pt-4">
+                  <h3 className="font-semibold mb-2">Invite New Member</h3>
+                  <div className="flex gap-2">
+                    <input
+                      type="email"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleInvite()}
+                      placeholder="Enter email address"
+                      className="flex-grow border px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={handleInvite}
+                      className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                    >
+                      Invite
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Debug Info (dev only) */}
+        {process.env.NODE_ENV === "development" && (
+          <div className="mt-8 p-4 bg-gray-100 rounded-lg">
+            <h3 className="font-semibold mb-2">Debug Info:</h3>
+            <p className="text-sm">Board ID: {id}</p>
+            <p className="text-sm">Columns: {board.Columns?.length || 0}</p>
+            <p className="text-sm">Members: {members.length}</p>
+            <details className="mt-2">
+              <summary className="cursor-pointer text-sm font-medium">
+                Members Data
+              </summary>
+              <pre className="text-xs mt-2 overflow-auto">
+                {JSON.stringify(members, null, 2)}
+              </pre>
+            </details>
+          </div>
+        )}
+      </div>
+    </DragDropContext>
+  );
 };
 
 export default BoardView;

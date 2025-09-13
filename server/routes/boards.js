@@ -1,170 +1,459 @@
 import express from "express";
-import { Board, Column, Card } from "../models/index.js";
-import sequelize from "../config/database.js";
+import {
+  Board,
+  BoardMember,
+  Invite,
+  User,
+  Column,
+  Card,
+  CardComment,
+  CardAssignment,
+} from "../models/index.js";
+import { authenticate, authorize } from "../middleware/auth.js";
+import { SOCKET_EVENTS, NOTIFICATION_TYPES } from "../socket/events.js";
 
-export default function (io) {
+export default function (socketManager, socketEventHelper) {
   const router = express.Router();
 
-  router.get("/", async (req, res) => {
-    try {
-      const boards = await Board.findAll({
-        include: [{
+  // Helper function to get full board data
+  async function getFullBoardData(boardId) {
+    return await Board.findByPk(boardId, {
+      include: [
+        {
           model: Column,
-          as: 'Columns',
-          include: [{
-            model: Card,
-            as: 'Cards'
-          }]
-        }],
-        order: [
-            ['createdAt', 'DESC'],
-            ['Columns', 'order', 'ASC'],
-            ['Columns', 'Cards', 'order', 'ASC']
-        ]
-      });
-      res.json(boards);
-    } catch (error) {
-      console.error("Error fetching boards:", error);
-      res.status(500).json({ error: "Internal server error" });
-    }
-  });
+          as: "Columns",
+          include: [{ 
+            model: Card, 
+            as: "Cards",
+            include: [
+              { model: User, as: "Assignees" },
+              { 
+                model: CardComment, 
+                as: "Comments",
+                include: [{ model: User, as: "User" }]
+              },
+            ]
+          }],
+        },
+        {
+          model: BoardMember,
+          as: "Members",
+          include: [{ model: User, as: "User" }],
+        },
+      ],
+      order: [
+        ["Columns", "order", "ASC"],
+        ["Columns", "Cards", "order", "ASC"],
+      ],
+    });
+  }
 
-  // Create a new board
-  router.post("/", async (req, res) => {
+  // ✅ Get board by ID (if owner or member)
+  router.get("/:id", authenticate, async (req, res) => {
     try {
-      const { name } = req.body;
-      if (!name || name.trim() === "") {
-        return res.status(400).json({ error: "Board name is required" });
+      const board = await getFullBoardData(req.params.id);
+      if (!board) return res.status(404).json({ error: "Board not found" });
+
+      // Check if user is owner or member
+      const isOwner = board.ownerId === req.user.id;
+      const isMember = await BoardMember.findOne({
+        where: { boardId: board.id, userId: req.user.id, status: "accepted" },
+      });
+      
+      if (!isOwner && !isMember) {
+        return res.status(403).json({ error: "Access denied" });
       }
-      const newBoard = await Board.create({ name: name.trim() });
-      const boardWithAssociations = await Board.findByPk(newBoard.id, {
-        include: [{
-          model: Column,
-          as: 'Columns',
-          include: [{ model: Card, as: 'Cards' }]
-        }]
-      });
-      io.emit("board_created", boardWithAssociations);
-      res.status(201).json(boardWithAssociations);
-    } catch (error) {
-      console.error("Error creating board:", error);
+
+      // Join user to board room for real-time updates
+      const userSocket = socketManager.connectedUsers.get(req.user.id);
+      if (userSocket) {
+        socketManager.io.sockets.sockets.get(userSocket)?.join(board.id.toString());
+      }
+
+      // Emit online users update
+      await socketEventHelper.emitOnlineUsersUpdate(board.id);
+
+      res.json(board);
+    } catch (err) {
+      console.error(err);
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  router.get("/:id", async (req, res) => {
+  // ✅ Create a new board (Admin only)
+  router.post("/", authenticate, authorize("admin"), async (req, res) => {
     try {
-      const board = await Board.findByPk(req.params.id, {
-        include: [{ model: Column, as: "Columns", include: [{ model: Card, as: "Cards" }] }],
-        order: [
-            ['Columns', 'order', 'ASC'],
-            ['Columns', 'Cards', 'order', 'ASC']
+      const { name, description } = req.body;
+      if (!name) return res.status(400).json({ error: "Board name required" });
+
+      const board = await Board.create({
+        name,
+        description,
+        ownerId: req.user.id,
+      });
+
+      // Add owner as member automatically
+      await BoardMember.create({
+        boardId: board.id,
+        userId: req.user.id,
+        role: "admin",
+        status: "accepted",
+        joinedAt: new Date(),
+      });
+
+      const boardWithAssociations = await getFullBoardData(board.id);
+
+      // Emit socket events
+      socketEventHelper.emitBoardCreated(boardWithAssociations, req.user.id);
+      
+      // Send success notification to creator
+      socketEventHelper.emitNotification(req.user.id, {
+        type: NOTIFICATION_TYPES.SUCCESS,
+        title: 'Board Created',
+        message: `Board "${name}" has been created successfully`,
+        data: { boardId: board.id }
+      });
+
+      res.status(201).json(boardWithAssociations);
+    } catch (err) {
+      console.error(err);
+      
+      // Send error notification
+      socketEventHelper.emitNotification(req.user.id, {
+        type: NOTIFICATION_TYPES.ERROR,
+        title: 'Board Creation Failed',
+        message: 'Failed to create board. Please try again.'
+      });
+      
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // ✅ Remove a member from board (Admin only)
+  router.delete(
+    "/:boardId/members/:userId",
+    authenticate,
+    authorize("admin"),
+    async (req, res) => {
+      try {
+        const { boardId, userId } = req.params;
+
+        const member = await BoardMember.findOne({
+          where: { boardId: boardId, userId: userId },
+          include: [{ model: User, as: "User" }]
+        });
+        
+        if (!member) return res.status(404).json({ error: "Member not found" });
+
+        const removedUserData = member.User;
+        await member.destroy();
+
+        // Get updated board data
+        const updatedBoard = await getFullBoardData(boardId);
+
+        // Emit socket events
+        socketEventHelper.emitMemberRemoved(boardId, removedUserData, req.user);
+        socketEventHelper.emitBoardUpdated(boardId, updatedBoard);
+
+        // Force disconnect the removed user from board room
+        const removedUserSocket = socketManager.connectedUsers.get(userId);
+        if (removedUserSocket) {
+          const socket = socketManager.io.sockets.sockets.get(removedUserSocket);
+          if (socket) {
+            socket.leave(boardId.toString());
+          }
+        }
+
+        // Send notifications
+        socketEventHelper.emitNotification(userId, {
+          type: NOTIFICATION_TYPES.WARNING,
+          title: 'Removed from Board',
+          message: `You have been removed from the board "${updatedBoard.name}"`,
+          data: { boardId }
+        });
+
+        socketEventHelper.emitNotification(req.user.id, {
+          type: NOTIFICATION_TYPES.SUCCESS,
+          title: 'Member Removed',
+          message: `${removedUserData.name} has been removed from the board`,
+          data: { boardId }
+        });
+
+        res.status(204).send();
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  );
+
+  // ✅ Invite a user to board (Admin only)
+  router.post(
+    "/:id/invite",
+    authenticate,
+    authorize("admin"),
+    async (req, res) => {
+      try {
+        let { inviteeEmail } = req.body;
+
+        // Fix: Handle case where inviteeEmail might be an object
+        if (typeof inviteeEmail === "object" && inviteeEmail.email) {
+          inviteeEmail = inviteeEmail.email;
+        }
+
+        if (!inviteeEmail || typeof inviteeEmail !== "string") {
+          return res.status(400).json({ error: "Valid invitee email required" });
+        }
+
+        const board = await Board.findByPk(req.params.id);
+        if (!board) {
+          return res.status(404).json({ error: "Board not found" });
+        }
+
+        // Find user by email first
+        const user = await User.findOne({ where: { email: inviteeEmail } });
+        if (!user) {
+          return res.status(404).json({ error: "User not found" });
+        }
+
+        // Check if already a member
+        const existingMember = await BoardMember.findOne({
+          where: { boardId: board.id, userId: user.id },
+        });
+        if (existingMember) {
+          return res.status(400).json({ error: "User already a member" });
+        }
+
+        // Check if invite already exists
+        const existingInvite = await Invite.findOne({
+          where: { boardId: board.id, inviteeEmail, status: "pending" },
+        });
+        if (existingInvite) {
+          return res.status(400).json({ error: "Invite already sent" });
+        }
+
+        const invite = await Invite.create({
+          boardId: board.id,
+          inviterId: req.user.id,
+          inviteeEmail,
+        });
+
+        // Emit socket events
+        socketEventHelper.emitInviteSent(req.user.id, invite);
+        
+        // Send notification to invitee
+        socketEventHelper.emitNotification(user.id, {
+          type: NOTIFICATION_TYPES.INFO,
+          title: 'Board Invitation',
+          message: `You have been invited to join "${board.name}" by ${req.user.name}`,
+          data: { inviteId: invite.id, boardId: board.id, boardName: board.name }
+        });
+
+        res.status(201).json(invite);
+      } catch (err) {
+        console.error("Invite error:", err);
+        
+        socketEventHelper.emitNotification(req.user.id, {
+          type: NOTIFICATION_TYPES.ERROR,
+          title: 'Invitation Failed',
+          message: 'Failed to send invitation. Please try again.'
+        });
+        
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  );
+
+  // ✅ Get board members
+  router.get("/:boardId/members", authenticate, async (req, res) => {
+    try {
+      const { boardId } = req.params;
+
+      const members = await BoardMember.findAll({
+        where: { boardId: boardId },
+        include: [
+          { model: User, as: "User", attributes: ["id", "name", "email"] },
         ],
       });
-      if (!board) {
-        return res.status(404).json({ error: "Board not found" });
-      }
-      res.json(board);
-    } catch (error) {
-      console.error("Error fetching board:", error);
+
+      // Add online status to members
+      const membersWithStatus = members.map(member => ({
+        ...member.toJSON(),
+        isOnline: socketManager.isUserOnline(member.userId)
+      }));
+
+      res.json(membersWithStatus);
+    } catch (err) {
+      console.error(err);
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  router.post("/:id/columns", async (req, res) => {
+  // ✅ List boards for current user (owner or member)
+  router.get("/", authenticate, async (req, res) => {
     try {
-      const { title } = req.body;
-      const boardId = req.params.id;
-      if (!title || title.trim() === "") {
-        return res.status(400).json({ error: "Column title is required" });
-      }
-      const board = await Board.findByPk(boardId);
-      if (!board) {
-        return res.status(404).json({ error: "Board not found" });
-      }
-      const maxOrder = await Column.max("order", { where: { BoardId: boardId } });
-      const nextOrder = (maxOrder ?? -1) + 1;
-      const column = await Column.create({ title: title.trim(), BoardId: boardId, order: nextOrder });
-      const updatedBoard = await Board.findByPk(boardId, {
-        include: [{ model: Column, as: "Columns", include: [{ model: Card, as: "Cards" }] }],
-        order: [['Columns', 'order', 'ASC'], ['Columns', 'Cards', 'order', 'ASC']],
+      // Get boards where user is owner
+      const ownedBoards = await Board.findAll({
+        where: { ownerId: req.user.id },
+        include: [
+          {
+            model: Column,
+            as: "Columns",
+            include: [{ model: Card, as: "Cards" }],
+          },
+          {
+            model: BoardMember,
+            as: "Members",
+            include: [{ model: User, as: "User" }],
+          },
+        ],
+        order: [
+          ["createdAt", "DESC"],
+          ["Columns", "order", "ASC"],
+          ["Columns", "Cards", "order", "ASC"],
+        ],
       });
-      io.to(boardId).emit("board_updated", updatedBoard);
-      io.to(boardId).emit("notification", { type: "success", message: `New column "${column.title}" was added.` });
-      res.status(201).json(column);
-    } catch (error) {
-      console.error("Error creating column:", error);
-      res.status(500).json({ error: "Internal server error" });
-    }
-  });
 
-  router.put("/:id", async (req, res) => {
-    try {
-      const { name } = req.body;
-      const boardId = req.params.id;
-      if (!name || name.trim() === "") {
-        return res.status(400).json({ error: "Board name is required" });
-      }
-      const board = await Board.findByPk(boardId);
-      if (!board) {
-        return res.status(404).json({ error: "Board not found" });
-      }
-      await board.update({ name: name.trim() });
-      const updatedBoard = await Board.findByPk(boardId, {
-        include: [{ model: Column, as: "Columns", include: [{ model: Card, as: "Cards" }] }],
-        order: [['Columns', 'order', 'ASC'], ['Columns', 'Cards', 'order', 'ASC']],
+      // Get boards where user is member
+      const memberBoards = await Board.findAll({
+        include: [
+          {
+            model: BoardMember,
+            as: "Members",
+            where: { userId: req.user.id, status: "accepted" },
+            include: [{ model: User, as: "User" }],
+          },
+          {
+            model: Column,
+            as: "Columns",
+            include: [{ model: Card, as: "Cards" }],
+          },
+        ],
+        order: [
+          ["createdAt", "DESC"],
+          ["Columns", "order", "ASC"],
+          ["Columns", "Cards", "order", "ASC"],
+        ],
       });
-      io.to(boardId).emit("board_updated", updatedBoard);
-      io.emit("board_updated", updatedBoard); // Also emit to dashboard listeners
-      io.to(boardId).emit("notification", { type: "success", message: `Board renamed to "${updatedBoard.name}".` });
-      res.json(updatedBoard);
-    } catch (error) {
-      console.error("Error updating board:", error);
-      res.status(500).json({ error: "Internal server error" });
-    }
-  });
 
-  router.put("/:id/columns/reorder", async (req, res) => {
-    const transaction = await sequelize.transaction();
-    try {
-      const { orderedIds } = req.body;
-      if (!Array.isArray(orderedIds)) {
-        return res.status(400).json({ error: "orderedIds must be an array" });
-      }
-      await Promise.all(
-        orderedIds.map((id, index) =>
-          Column.update({ order: index }, { where: { id: id, BoardId: req.params.id }, transaction })
-        )
+      // Filter out owned boards from member boards to avoid duplicates
+      const filteredMemberBoards = memberBoards.filter(
+        (board) => board.ownerId !== req.user.id
       );
-      await transaction.commit();
-      const updatedBoard = await Board.findByPk(req.params.id, {
-        include: [{ model: Column, as: "Columns", include: [{ model: Card, as: "Cards" }] }],
-        order: [['Columns', 'order', 'ASC'], ['Columns', 'Cards', 'order', 'ASC']],
-      });
-      io.to(req.params.id).emit("board_updated", updatedBoard);
-      io.to(req.params.id).emit("notification", { type: "success", message: "Columns were successfully reordered." });
-      res.status(200).json({ message: "Columns reordered successfully" });
-    } catch (error) {
-      if (transaction.finished !== 'commit' && transaction.finished !== 'rollback') {
-        await transaction.rollback();
-      }
-      console.error("Error reordering columns:", error);
+
+      const allBoards = [...ownedBoards, ...filteredMemberBoards];
+
+      // Add activity indicators and online member counts
+      const boardsWithActivity = allBoards.map(board => ({
+        ...board.toJSON(),
+        onlineMembersCount: board.Members.filter(member => 
+          socketManager.isUserOnline(member.userId)
+        ).length,
+        lastActivity: new Date() // You can implement actual last activity tracking
+      }));
+
+      res.json(boardsWithActivity);
+    } catch (err) {
+      console.error(err);
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  // Delete board
-  router.delete("/:id", async (req, res) => {
-    try {
-      const board = await Board.findByPk(req.params.id);
-      if (!board) {
-        return res.status(404).json({ error: "Board not found" });
+  // ✅ Accept/Decline invite
+  router.post(
+    "/:id/invite/:inviteId/respond",
+    authenticate,
+    async (req, res) => {
+      try {
+        const { action } = req.body; // "accept" or "decline"
+        if (!["accept", "decline"].includes(action))
+          return res.status(400).json({ error: "Invalid action" });
+
+        const invite = await Invite.findByPk(req.params.inviteId, {
+          include: [
+            { model: User, as: "Inviter" },
+            { model: Board, as: "Board" }
+          ]
+        });
+        
+        if (!invite || invite.boardId !== req.params.id)
+          return res.status(404).json({ error: "Invite not found" });
+        if (invite.inviteeEmail !== req.user.email)
+          return res.status(403).json({ error: "Not authorized" });
+
+        invite.status = action === "accept" ? "accepted" : "declined";
+        await invite.save();
+
+        if (action === "accept") {
+          // Add user as board member
+          const newMember = await BoardMember.create({
+            boardId: invite.boardId,
+            userId: req.user.id,
+            role: "member",
+            status: "accepted",
+            joinedAt: new Date(),
+          });
+
+          // Get updated board data
+          const updatedBoard = await getFullBoardData(invite.boardId);
+
+          // Emit socket events
+          socketEventHelper.emitMemberAdded(invite.boardId, {
+            ...newMember.toJSON(),
+            User: req.user
+          }, invite.Inviter);
+          
+          socketEventHelper.emitBoardUpdated(invite.boardId, updatedBoard);
+          socketEventHelper.emitInviteAccepted(invite.boardId, invite.Inviter, req.user);
+
+          // Join user to board room
+          const userSocket = socketManager.connectedUsers.get(req.user.id);
+          if (userSocket) {
+            socketManager.io.sockets.sockets.get(userSocket)?.join(invite.boardId.toString());
+          }
+
+          // Update online users
+          await socketEventHelper.emitOnlineUsersUpdate(invite.boardId);
+        } else {
+          // Emit decline notification
+          socketEventHelper.emitInviteDeclined(invite.Inviter, req.user, invite.boardId);
+        }
+
+        res.json({ success: true, status: invite.status });
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Internal server error" });
       }
-      await board.destroy();
-      io.emit("board_deleted", { id: req.params.id });
-      res.status(204).send();
-    } catch (error) {
-      console.error("Error deleting board:", error);
+    }
+  );
+
+  // ✅ Get online users for a board
+  router.get("/:boardId/online-users", authenticate, async (req, res) => {
+    try {
+      const { boardId } = req.params;
+      
+      // Verify user has access to board
+      const board = await Board.findByPk(boardId);
+      if (!board) return res.status(404).json({ error: "Board not found" });
+
+      const isOwner = board.ownerId === req.user.id;
+      const isMember = await BoardMember.findOne({
+        where: { boardId: boardId, userId: req.user.id, status: "accepted" },
+      });
+      
+      if (!isOwner && !isMember) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const onlineUsers = await socketManager.getBoardOnlineUsers(boardId);
+      res.json({
+        boardId,
+        onlineUsers,
+        count: onlineUsers.length,
+        timestamp: new Date()
+      });
+    } catch (err) {
+      console.error(err);
       res.status(500).json({ error: "Internal server error" });
     }
   });

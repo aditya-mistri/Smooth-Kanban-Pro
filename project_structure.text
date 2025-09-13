@@ -21,7 +21,12 @@
       - Column.jsx
       - DashBoard.jsx
       - StrictDroppable.jsx
+    - contexts
+      - AuthContext.jsx
     - main.jsx
+    - pages
+      - Login.jsx
+      - Signup.jsx
     - services
       - api.js
       - socket.js
@@ -36,14 +41,24 @@
   - config
     - database.js
   - index.js
+  - middleware
+    - auth.js
   - models
     - Board.js
+    - BoardMember.js
     - Card.js
+    - CardAssignment.js
+    - CardComment.js
     - Column.js
     - index.js
+    - Invite.js
+    - User.js
   - package-lock.json
   - package.json
   - routes
+    - admin.js
+    - auth.js
     - boards.js
     - cards.js
     - columns.js
+    - invites.js

@@ -1,29 +1,124 @@
 import express from "express";
-import { Column, Card, Board } from "../models/index.js";
-import sequelize from "../config/database.js"; // Import sequelize for transactions
-import { Op } from "sequelize"; // Import Op for operators
+import {
+  Board,
+  BoardMember,
+  Invite,
+  User,
+  Column,
+  Card,
+  CardComment,
+  CardAssignment,
+} from "../models/index.js";
+import sequelize from "../config/database.js";
+import { authenticate, authorize } from "../middleware/auth.js";
+import { SOCKET_EVENTS, NOTIFICATION_TYPES } from "../socket/events.js";
 
-export default function (io) {
+export default function (socketManager, socketEventHelper) {
   const router = express.Router();
 
-  // Update a column
-  router.put("/:id", async (req, res) => {
+  // ✅ Create Column (Admin only)
+  router.post(
+    "/:boardId",
+    authenticate,
+    authorize("admin"),
+    async (req, res) => {
+      try {
+        const { title } = req.body;
+        const { boardId } = req.params;
+
+        const board = await Board.findByPk(boardId);
+        if (!board) return res.status(404).json({ error: "Board not found" });
+
+        const maxOrder = await Column.max("order", {
+          where: { boardId: boardId },
+        });
+
+        const column = await Column.create({
+          title,
+          boardId: boardId,
+          order: (maxOrder ?? -1) + 1,
+        });
+
+        const updatedBoard = await Board.findByPk(boardId, {
+          include: [
+            {
+              model: Column,
+              as: "Columns",
+              include: [{ 
+                model: Card, 
+                as: "Cards",
+                include: [
+                  { model: User, as: "Assignees" },
+                  { 
+                    model: CardComment, 
+                    as: "Comments",
+                    include: [{ model: User, as: "User" }]
+                  },
+                ]
+              }],
+            },
+          ],
+          order: [
+            ["Columns", "order", "ASC"],
+            ["Columns", "Cards", "order", "ASC"],
+          ],
+        });
+
+        // Emit socket events
+        socketEventHelper.emitColumnCreated(boardId, column);
+        socketEventHelper.emitBoardUpdated(boardId, updatedBoard);
+        
+        // Send success notification
+        socketEventHelper.emitNotification(req.user.id, {
+          type: NOTIFICATION_TYPES.SUCCESS,
+          title: 'Column Created',
+          message: `Column "${title}" has been created successfully`,
+          data: { boardId, columnId: column.id }
+        });
+
+        res.status(201).json(column);
+      } catch (err) {
+        console.error(err);
+        
+        // Send error notification
+        socketEventHelper.emitNotification(req.user.id, {
+          type: NOTIFICATION_TYPES.ERROR,
+          title: 'Column Creation Failed',
+          message: 'Failed to create column. Please try again.'
+        });
+        
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  );
+
+  // ✅ Update Column title
+  router.put("/:id", authenticate, authorize("admin"), async (req, res) => {
     try {
       const { title } = req.body;
       const column = await Column.findByPk(req.params.id);
-      if (!column) {
-        return res.status(404).json({ error: "Column not found" });
-      }
+      if (!column) return res.status(404).json({ error: "Column not found" });
 
-      await column.update({ title: title.trim() });
+      const oldTitle = column.title;
+      await column.update({ title });
 
-      // ✅ CHANGE: Fetch the full board and emit 'board_updated'
-      const updatedBoard = await Board.findByPk(column.BoardId, {
+      const updatedBoard = await Board.findByPk(column.boardId, {
         include: [
           {
             model: Column,
             as: "Columns",
-            include: [{ model: Card, as: "Cards" }],
+            include: [{ 
+              model: Card, 
+              as: "Cards",
+              include: [
+                { model: User, as: "Assignees" },
+                { 
+                  model: CardComment, 
+                  as: "Comments",
+                  include: [{ model: User, as: "User" }]
+                },
+              ]
+            }],
           },
         ],
         order: [
@@ -31,98 +126,142 @@ export default function (io) {
           ["Columns", "Cards", "order", "ASC"],
         ],
       });
-      io.to(column.BoardId.toString()).emit("board_updated", updatedBoard);
-      io.to(column.BoardId.toString()).emit("notification", {
-        type: "success",
-        message: `Column "${oldTitle}" renamed to "${column.title}".`,
-      });
 
+      // Emit socket events
+      socketEventHelper.emitColumnUpdated(column.boardId, column);
+      socketEventHelper.emitBoardUpdated(column.boardId, updatedBoard);
+      
+      // Send success notification
+      socketEventHelper.emitNotification(req.user.id, {
+        type: NOTIFICATION_TYPES.SUCCESS,
+        title: 'Column Updated',
+        message: `Column renamed from "${oldTitle}" to "${title}"`,
+        data: { boardId: column.boardId, columnId: column.id }
+      });
 
       res.json(column);
-    } catch (error) {
-      console.error("Error updating column:", error);
+    } catch (err) {
+      console.error(err);
+      
+      // Send error notification
+      socketEventHelper.emitNotification(req.user.id, {
+        type: NOTIFICATION_TYPES.ERROR,
+        title: 'Column Update Failed',
+        message: 'Failed to update column. Please try again.'
+      });
+      
       res.status(500).json({ error: "Internal server error" });
     }
   });
 
-  // Add card to column
-  router.post("/:id/cards", async (req, res) => {
-    try {
-      const { title, description } = req.body;
-      const columnId = req.params.id;
-      if (!title || title.trim() === "") {
-        return res.status(400).json({ error: "Card title is required" });
-      }
-      const column = await Column.findByPk(columnId);
-      if (!column) {
-        return res.status(404).json({ error: "Column not found" });
-      }
-      const maxOrder = await Card.max("order", {
-        where: { ColumnId: columnId },
-      });
-      const nextOrder = (maxOrder ?? -1) + 1;
-      const card = await Card.create({
-        title: title.trim(),
-        description: description ? description.trim() : null,
-        ColumnId: columnId,
-        order: nextOrder,
-      });
+  // ✅ Reorder columns
+  router.put(
+    "/reorder/:boardId",
+    authenticate,
+    authorize("admin"),
+    async (req, res) => {
+      const transaction = await sequelize.transaction();
+      try {
+        const { orderedIds } = req.body;
+        if (!Array.isArray(orderedIds))
+          return res.status(400).json({ error: "orderedIds must be an array" });
 
-      const updatedBoard = await Board.findByPk(column.BoardId, {
-        include: [
-          {
-            model: Column,
-            as: "Columns",
-            include: [{ model: Card, as: "Cards" }],
-          },
-        ],
-        order: [
-          ["Columns", "order", "ASC"],
-          ["Columns", "Cards", "order", "ASC"],
-        ],
-      });
-      io.to(column.BoardId.toString()).emit("board_updated", updatedBoard);
-      io.to(column.BoardId.toString()).emit("notification", {
-        type: "success",
-        message: `New card "${card.title}" added to "${column.title}".`,
-      });
+        await Promise.all(
+          orderedIds.map((id, index) =>
+            Column.update({ order: index }, { where: { id }, transaction })
+          )
+        );
 
-      res.status(201).json(card);
-    } catch (error) {
-      console.error("Error creating card:", error);
-      res.status(500).json({ error: "Internal server error" });
+        await transaction.commit();
+
+        const updatedBoard = await Board.findByPk(req.params.boardId, {
+          include: [
+            {
+              model: Column,
+              as: "Columns",
+              include: [{ 
+                model: Card, 
+                as: "Cards",
+                include: [
+                  { model: User, as: "Assignees" },
+                  { 
+                    model: CardComment, 
+                    as: "Comments",
+                    include: [{ model: User, as: "User" }]
+                  },
+                ]
+              }],
+            },
+          ],
+          order: [
+            ["Columns", "order", "ASC"],
+            ["Columns", "Cards", "order", "ASC"],
+          ],
+        });
+
+        // Emit socket events
+        socketEventHelper.emitColumnsReordered(req.params.boardId, updatedBoard.Columns);
+        socketEventHelper.emitBoardUpdated(req.params.boardId, updatedBoard);
+        
+        // Send board notification
+        socketEventHelper.emitBoardNotification(req.params.boardId, {
+          type: NOTIFICATION_TYPES.INFO,
+          title: 'Columns Reordered',
+          message: `${req.user.name} has reordered the columns`
+        });
+
+        res.status(200).json({ message: "Columns reordered successfully" });
+      } catch (err) {
+        if (
+          transaction &&
+          !["commit", "rollback"].includes(transaction.finished)
+        )
+          await transaction.rollback();
+
+        console.error(err);
+        
+        // Send error notification
+        socketEventHelper.emitNotification(req.user.id, {
+          type: NOTIFICATION_TYPES.ERROR,
+          title: 'Column Reorder Failed',
+          message: 'Failed to reorder columns. Please try again.'
+        });
+        
+        res.status(500).json({ error: "Internal server error" });
+      }
     }
-  });
+  );
 
-  router.delete("/:id", async (req, res) => {
+  // ✅ Delete Column
+  router.delete("/:id", authenticate, authorize("admin"), async (req, res) => {
     const transaction = await sequelize.transaction();
     try {
       const column = await Column.findByPk(req.params.id, { transaction });
-      if (!column) {
-        await transaction.rollback();
-        return res.status(404).json({ error: "Column not found" });
-      }
+      if (!column) return res.status(404).json({ error: "Column not found" });
 
-      const { BoardId, order: deletedOrder } = column;
+      const boardId = column.boardId;
+      const columnTitle = column.title;
+
       await column.destroy({ transaction });
-
-      await Column.update(
-        { order: sequelize.literal('"order" - 1') },
-        { where: { BoardId, order: { [Op.gt]: deletedOrder } }, transaction }
-      );
       await transaction.commit();
 
-      const updatedBoard = await Board.findByPk(BoardId, {
+      const updatedBoard = await Board.findByPk(boardId, {
         include: [
           {
             model: Column,
             as: "Columns",
-            include: [
-              {
-                model: Card,
-                as: "Cards",
-              },
-            ],
+            include: [{ 
+              model: Card, 
+              as: "Cards",
+              include: [
+                { model: User, as: "Assignees" },
+                { 
+                  model: CardComment, 
+                  as: "Comments",
+                  include: [{ model: User, as: "User" }]
+                },
+              ]
+            }],
           },
         ],
         order: [
@@ -131,20 +270,31 @@ export default function (io) {
         ],
       });
 
-      io.to(BoardId.toString()).emit("board_updated", updatedBoard);
-      io.to(BoardId.toString()).emit("notification", {
-        type: "success",
-        message: `Column "${columnTitle}" was deleted.`,
+      // Emit socket events
+      socketEventHelper.emitColumnDeleted(boardId, req.params.id);
+      socketEventHelper.emitBoardUpdated(boardId, updatedBoard);
+      
+      // Send notifications
+      socketEventHelper.emitBoardNotification(boardId, {
+        type: NOTIFICATION_TYPES.WARNING,
+        title: 'Column Deleted',
+        message: `Column "${columnTitle}" has been deleted by ${req.user.name}`
       });
+
       res.status(204).send();
-    } catch (error) {
-      if (
-        transaction.finished !== "commit" &&
-        transaction.finished !== "rollback"
-      ) {
+    } catch (err) {
+      if (!["commit", "rollback"].includes(transaction.finished))
         await transaction.rollback();
-      }
-      console.error("Error deleting column:", error);
+
+      console.error(err);
+      
+      // Send error notification
+      socketEventHelper.emitNotification(req.user.id, {
+        type: NOTIFICATION_TYPES.ERROR,
+        title: 'Column Deletion Failed',
+        message: 'Failed to delete column. Please try again.'
+      });
+      
       res.status(500).json({ error: "Internal server error" });
     }
   });

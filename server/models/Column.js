@@ -19,23 +19,23 @@ const Column = sequelize.define("Column", {
     type: DataTypes.INTEGER,
     allowNull: false,
     defaultValue: 0,
-    validate: {
-      min: 0
-    }
+    validate: { min: 0 }
   },
-  BoardId: {
+  boardId: {
     type: DataTypes.UUID,
     allowNull: false,
-    field: 'board_id' // Database column name
+    field: 'board_id',
+    references: {
+      model: 'boards',
+      key: 'id'
+    }
   },
 }, {
   tableName: 'columns',
   timestamps: true,
   indexes: [
-    {
-      fields: ['board_id', 'order'], // Use database column names
-      unique: true
-    }
+    { fields: ['board_id'] },
+    { unique: true, fields: ['board_id', 'order'] }
   ]
 });
 
