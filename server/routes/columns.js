@@ -12,11 +12,69 @@ import {
 import sequelize from "../config/database.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { SOCKET_EVENTS, NOTIFICATION_TYPES } from "../socket/events.js";
+import { Decimal } from "decimal.js"; //
 
 export default function (socketManager, socketEventHelper) {
   const router = express.Router();
 
-  // ✅ Create Column (Admin only)
+  // Helper function to calculate order values
+  const calculateOrderValues = (orderedIds, existingColumns) => {
+    const columnMap = new Map(existingColumns.map(col => [col.id, col]));
+    const orderValues = [];
+    
+    for (let i = 0; i < orderedIds.length; i++) {
+      if (i === 0) {
+        // First item gets order 1000
+        orderValues.push({ id: orderedIds[i], order: 1000 });
+      } else {
+        // Subsequent items get previous + 1000
+        orderValues.push({ 
+          id: orderedIds[i], 
+          order: orderValues[i - 1].order + 1000 
+        });
+      }
+    }
+    
+    return orderValues;
+  };
+
+  // Alternative helper for tight spacing (if you want items closer together)
+  const calculateTightOrderValues = (orderedIds) => {
+    return orderedIds.map((id, index) => ({
+      id,
+      order: (index + 1) * 1000 // 1000, 2000, 3000, etc.
+    }));
+  };
+
+  // Helper to insert between existing positions
+  const calculateInsertionOrder = async (boardId, targetPosition, transaction) => {
+    const columns = await Column.findAll({
+      where: { boardId },
+      order: [['order', 'ASC']],
+      transaction
+    });
+
+    if (columns.length === 0) return 1000;
+    
+    if (targetPosition === 0) {
+      // Insert at beginning
+      const firstOrder = parseFloat(columns[0].order);
+      return firstOrder / 2;
+    }
+    
+    if (targetPosition >= columns.length) {
+      // Insert at end
+      const lastOrder = parseFloat(columns[columns.length - 1].order);
+      return lastOrder + 1000;
+    }
+    
+    // Insert between positions
+    const prevOrder = parseFloat(columns[targetPosition - 1].order);
+    const nextOrder = parseFloat(columns[targetPosition].order);
+    return (prevOrder + nextOrder) / 2;
+  };
+
+  // ✅ Create Column (Admin only) - Updated for decimal
   router.post(
     "/:boardId",
     authenticate,
@@ -29,14 +87,17 @@ export default function (socketManager, socketEventHelper) {
         const board = await Board.findByPk(boardId);
         if (!board) return res.status(404).json({ error: "Board not found" });
 
+        // Get max order and add 1000 for spacing
         const maxOrder = await Column.max("order", {
           where: { boardId: boardId },
         });
 
+        const newOrder = maxOrder ? parseFloat(maxOrder) + 1000 : 1000;
+
         const column = await Column.create({
           title,
           boardId: boardId,
-          order: (maxOrder ?? -1) + 1,
+          order: newOrder,
         });
 
         const updatedBoard = await Board.findByPk(boardId, {
@@ -68,7 +129,6 @@ export default function (socketManager, socketEventHelper) {
         socketEventHelper.emitColumnCreated(boardId, column);
         socketEventHelper.emitBoardUpdated(boardId, updatedBoard);
         
-        // Send success notification
         socketEventHelper.emitNotification(req.user.id, {
           type: NOTIFICATION_TYPES.SUCCESS,
           title: 'Column Created',
@@ -80,7 +140,6 @@ export default function (socketManager, socketEventHelper) {
       } catch (err) {
         console.error(err);
         
-        // Send error notification
         socketEventHelper.emitNotification(req.user.id, {
           type: NOTIFICATION_TYPES.ERROR,
           title: 'Column Creation Failed',
@@ -92,7 +151,7 @@ export default function (socketManager, socketEventHelper) {
     }
   );
 
-  // ✅ Update Column title
+  // ✅ Update Column title (unchanged)
   router.put("/:id", authenticate, authorize("admin"), async (req, res) => {
     try {
       const { title } = req.body;
@@ -127,11 +186,9 @@ export default function (socketManager, socketEventHelper) {
         ],
       });
 
-      // Emit socket events
       socketEventHelper.emitColumnUpdated(column.boardId, column);
       socketEventHelper.emitBoardUpdated(column.boardId, updatedBoard);
       
-      // Send success notification
       socketEventHelper.emitNotification(req.user.id, {
         type: NOTIFICATION_TYPES.SUCCESS,
         title: 'Column Updated',
@@ -143,7 +200,6 @@ export default function (socketManager, socketEventHelper) {
     } catch (err) {
       console.error(err);
       
-      // Send error notification
       socketEventHelper.emitNotification(req.user.id, {
         type: NOTIFICATION_TYPES.ERROR,
         title: 'Column Update Failed',
@@ -154,7 +210,7 @@ export default function (socketManager, socketEventHelper) {
     }
   });
 
-  // ✅ Reorder columns
+  // ✅ Reorder columns - DECIMAL VERSION
   router.put(
     "/reorder/:boardId",
     authenticate,
@@ -163,18 +219,45 @@ export default function (socketManager, socketEventHelper) {
       const transaction = await sequelize.transaction();
       try {
         const { orderedIds } = req.body;
-        if (!Array.isArray(orderedIds))
+        const { boardId } = req.params;
+        
+        if (!Array.isArray(orderedIds)) {
+          await transaction.rollback();
           return res.status(400).json({ error: "orderedIds must be an array" });
+        }
 
+        // Verify all columns belong to this board
+        const existingColumns = await Column.findAll({
+          where: { 
+            id: orderedIds, 
+            boardId: boardId 
+          },
+          transaction
+        });
+
+        if (existingColumns.length !== orderedIds.length) {
+          await transaction.rollback();
+          return res.status(400).json({ 
+            error: "Some columns don't exist or don't belong to this board" 
+          });
+        }
+
+        // Calculate new decimal order values with good spacing
+        const orderValues = calculateTightOrderValues(orderedIds);
+
+        // Update all columns with their new order values
         await Promise.all(
-          orderedIds.map((id, index) =>
-            Column.update({ order: index }, { where: { id }, transaction })
+          orderValues.map(({ id, order }) =>
+            Column.update(
+              { order },
+              { where: { id }, transaction }
+            )
           )
         );
 
         await transaction.commit();
 
-        const updatedBoard = await Board.findByPk(req.params.boardId, {
+        const updatedBoard = await Board.findByPk(boardId, {
           include: [
             {
               model: Column,
@@ -200,39 +283,39 @@ export default function (socketManager, socketEventHelper) {
         });
 
         // Emit socket events
-        socketEventHelper.emitColumnsReordered(req.params.boardId, updatedBoard.Columns);
-        socketEventHelper.emitBoardUpdated(req.params.boardId, updatedBoard);
+        socketEventHelper.emitColumnsReordered(boardId, updatedBoard.Columns);
+        socketEventHelper.emitBoardUpdated(boardId, updatedBoard);
         
-        // Send board notification
-        socketEventHelper.emitBoardNotification(req.params.boardId, {
+        socketEventHelper.emitBoardNotification(boardId, {
           type: NOTIFICATION_TYPES.INFO,
           title: 'Columns Reordered',
           message: `${req.user.name} has reordered the columns`
         });
 
-        res.status(200).json({ message: "Columns reordered successfully" });
-      } catch (err) {
-        if (
-          transaction &&
-          !["commit", "rollback"].includes(transaction.finished)
-        )
-          await transaction.rollback();
-
-        console.error(err);
+        res.status(200).json({ 
+          message: "Columns reordered successfully",
+          columns: updatedBoard.Columns 
+        });
         
-        // Send error notification
+      } catch (err) {
+        if (transaction && !["commit", "rollback"].includes(transaction.finished)) {
+          await transaction.rollback();
+        }
+
+        console.error("Column reorder error:", err);
+        
         socketEventHelper.emitNotification(req.user.id, {
           type: NOTIFICATION_TYPES.ERROR,
           title: 'Column Reorder Failed',
           message: 'Failed to reorder columns. Please try again.'
         });
         
-        res.status(500).json({ error: "Internal server error" });
+        res.status(500).json({ error: "Failed to reorder columns" });
       }
     }
   );
 
-  // ✅ Delete Column
+  // ✅ Delete Column (unchanged)
   router.delete("/:id", authenticate, authorize("admin"), async (req, res) => {
     const transaction = await sequelize.transaction();
     try {
@@ -250,19 +333,19 @@ export default function (socketManager, socketEventHelper) {
           {
             model: Column,
             as: "Columns",
-            include: [{ 
-              model: Card, 
-              as: "Cards",
-              include: [
-                { model: User, as: "Assignees" },
-                { 
-                  model: CardComment, 
-                  as: "Comments",
-                  include: [{ model: User, as: "User" }]
-                },
-              ]
-            }],
-          },
+          include: [{ 
+            model: Card, 
+            as: "Cards",
+            include: [
+              { model: User, as: "Assignees" },
+              { 
+                model: CardComment, 
+                as: "Comments",
+                include: [{ model: User, as: "User" }]
+              },
+            ]
+          }],
+        },
         ],
         order: [
           ["Columns", "order", "ASC"],
@@ -270,11 +353,9 @@ export default function (socketManager, socketEventHelper) {
         ],
       });
 
-      // Emit socket events
       socketEventHelper.emitColumnDeleted(boardId, req.params.id);
       socketEventHelper.emitBoardUpdated(boardId, updatedBoard);
       
-      // Send notifications
       socketEventHelper.emitBoardNotification(boardId, {
         type: NOTIFICATION_TYPES.WARNING,
         title: 'Column Deleted',
@@ -288,7 +369,6 @@ export default function (socketManager, socketEventHelper) {
 
       console.error(err);
       
-      // Send error notification
       socketEventHelper.emitNotification(req.user.id, {
         type: NOTIFICATION_TYPES.ERROR,
         title: 'Column Deletion Failed',

@@ -13,25 +13,25 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, children }) => {
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-lg shadow-xl w-full max-w-sm"
+        className="bg-white rounded-xl shadow-2xl w-full max-w-md transform transition-all"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-5 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-800">{title}</h3>
+        <div className="p-6 border-b border-gray-100">
+          <h3 className="text-xl font-semibold text-gray-900">{title}</h3>
         </div>
-        <div className="p-6 text-gray-600">{children}</div>
-        <div className="p-4 bg-gray-50 rounded-b-lg flex justify-end gap-3">
+        <div className="p-6 text-gray-700 leading-relaxed">{children}</div>
+        <div className="px-6 py-4 bg-gray-50 rounded-b-xl flex justify-end gap-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-gray-200 text-gray-700 font-medium rounded-md hover:bg-gray-300 transition-colors"
+            className="px-5 py-2.5 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
-            className="px-4 py-2 bg-red-600 text-white font-medium rounded-md hover:bg-red-700 transition-colors"
+            className="px-5 py-2.5 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition-colors"
           >
-            Confirm
+            Delete
           </button>
         </div>
       </div>
@@ -43,9 +43,10 @@ const getCommentText = (c) => c?.comment ?? c?.text ?? "";
 const getCommentUserName = (c) =>
   c?.User?.name ?? c?.user?.name ?? c?.userName ?? "Unknown";
 
-const Card = ({ card, index, members = [], onCardUpdate }) => {
+const Card = ({ card, index, members = [], onCardUpdate, onCardMove, columnId }) => {
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === "admin";
+  const [isExpanded, setIsExpanded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(card.title);
   const [description, setDescription] = useState(card.description || "");
@@ -54,11 +55,11 @@ const Card = ({ card, index, members = [], onCardUpdate }) => {
   const [comments, setComments] = useState([]);
   const [newComment, setNewComment] = useState("");
   const [isLoadingComments, setIsLoadingComments] = useState(false);
+  const [showAssignDropdown, setShowAssignDropdown] = useState(false);
 
   // Fixed: Normalize assignees data structure and ensure array
   const getInitialAssignees = () => {
     const assignees = card.Assignees || card.assignees || card.members || [];
-    // Ensure it's an array and normalize the structure
     const normalizedAssignees = Array.isArray(assignees) ? assignees : [];
     return normalizedAssignees.map((assignee) => ({
       id: assignee.id || assignee.userId,
@@ -84,7 +85,7 @@ const Card = ({ card, index, members = [], onCardUpdate }) => {
 
   useEffect(() => {
     const fetchComments = async () => {
-      if (!isEditing) return;
+      if (!isExpanded) return;
       setIsLoadingComments(true);
       try {
         const response = await api.getCardComments(card.id);
@@ -97,7 +98,7 @@ const Card = ({ card, index, members = [], onCardUpdate }) => {
       }
     };
     fetchComments();
-  }, [isEditing, card.id]);
+  }, [isExpanded, card.id]);
 
   const handleSave = async () => {
     if (!title.trim()) return toast.error("Card title is required");
@@ -109,7 +110,6 @@ const Card = ({ card, index, members = [], onCardUpdate }) => {
         description: description.trim() || null,
       });
 
-      // Call parent update handler if provided
       if (onCardUpdate) {
         onCardUpdate(
           updatedCard.data || {
@@ -148,6 +148,7 @@ const Card = ({ card, index, members = [], onCardUpdate }) => {
       await api.deleteCard(card.id);
       toast.success("Card deleted.", { id: toastId });
       setDeleteConfirmOpen(false);
+      // The parent board component should handle removing from UI via real-time updates
     } catch (err) {
       console.error(err);
       toast.error(err.response?.data?.error || "Failed to delete card.", {
@@ -159,7 +160,7 @@ const Card = ({ card, index, members = [], onCardUpdate }) => {
   };
 
   const handleKeyPress = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && e.target.tagName !== "TEXTAREA") {
       e.preventDefault();
       handleSave();
     }
@@ -195,13 +196,9 @@ const Card = ({ card, index, members = [], onCardUpdate }) => {
     }
   };
 
-  // Fixed: Better member assignment logic
   const handleAssign = async (userId) => {
     if (!userId) return;
-
-    // Check if user is already assigned
     const isAlreadyAssigned = assignedMembers.some((m) => m.id === userId);
-
     if (isAlreadyAssigned) {
       return toast.error("User already assigned");
     }
@@ -210,9 +207,7 @@ const Card = ({ card, index, members = [], onCardUpdate }) => {
     const toastId = toast.loading("Assigning member...");
 
     try {
-      const response = await api.assignUserToCard(card.id, userId);
-
-      // Find the user in members array
+      await api.assignUserToCard(card.id, userId);
       const userToAssign = members.find((u) => u.User?.id === userId);
 
       if (userToAssign) {
@@ -225,7 +220,6 @@ const Card = ({ card, index, members = [], onCardUpdate }) => {
         setAssignedMembers((prev) => [...prev, newAssignee]);
         toast.success(`${userToAssign.User.name} assigned`, { id: toastId });
 
-        // Update parent if callback provided
         if (onCardUpdate) {
           const updatedCard = { ...card };
           updatedCard.assignees = [...assignedMembers, newAssignee];
@@ -241,14 +235,12 @@ const Card = ({ card, index, members = [], onCardUpdate }) => {
       });
     } finally {
       setIsLoading(false);
+      setShowAssignDropdown(false);
     }
   };
 
-  // 🔄 Fixed Unassign with UUID
   const handleUnassign = async (userId) => {
-    // Find the user before removing
     const userToUnassign = assignedMembers.find((m) => m.id === userId);
-
     if (!userToUnassign) {
       return toast.error("User not found in assignments");
     }
@@ -258,13 +250,9 @@ const Card = ({ card, index, members = [], onCardUpdate }) => {
 
     try {
       await api.removeUserFromCard(card.id, userId);
-
-      // Remove from local state
       setAssignedMembers((prev) => prev.filter((m) => m.id !== userId));
-
       toast.success(`${userToUnassign.name} unassigned`, { id: toastId });
 
-      // Update parent if callback provided
       if (onCardUpdate) {
         const updatedCard = { ...card };
         updatedCard.assignees = assignedMembers.filter((m) => m.id !== userId);
@@ -280,220 +268,318 @@ const Card = ({ card, index, members = [], onCardUpdate }) => {
     }
   };
 
-  // Fixed: Better available members calculation
+  // Handle card updates
+  const handleCardUpdate = (updatedCard) => {
+    setColumns(prevColumns => 
+      prevColumns.map(column => ({
+        ...column,
+        cards: column.cards?.map(card => 
+          card.id === updatedCard.id ? updatedCard : card
+        ) || []
+      }))
+    );
+  };
+
   const getAvailableMembers = () => {
     if (!Array.isArray(members) || !Array.isArray(assignedMembers)) {
       return [];
     }
-
-
-    const available = members.filter((member) => {
+    return members.filter((member) => {
       const memberUserId = member.User?.id;
       return !assignedMembers.some(
-        (assigned) => assigned.User?.id === memberUserId
+        (assigned) => String(assigned.id) === String(memberUserId)
       );
     });
-
-    return available;
   };
 
   const availableMembers = getAvailableMembers();
 
-  if (isEditing) {
+  // Expanded/Detail View
+  if (isExpanded) {
     return (
-      <div className="bg-white border-2 border-blue-500 rounded-lg shadow-lg p-4 relative">
-        <div className="space-y-4">
-          {/* Title */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Card Title *
-            </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              onKeyDown={handleKeyPress}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={isLoading}
-              autoFocus
-            />
-          </div>
-
-          {/* Description */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Description
-            </label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              onKeyDown={handleKeyPress}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-              rows={3}
-              disabled={isLoading}
-            />
-          </div>
-
-          {/* Assignees */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Assigned Members
-            </label>
-            <div className="flex flex-wrap gap-2 mb-3">
-              {assignedMembers && assignedMembers.length > 0 ? (
-                assignedMembers.map((member) => (
-                  <div
-                    key={`assigned-${member.id}`}
-                    className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm ${
-                      String(member.id) === String(currentUser?.id)
-                        ? "bg-green-100 text-green-800"
-                        : "bg-blue-100 text-blue-800"
-                    }`}
-                  >
-                    <span>{member.name || "Unknown"}</span>
-                    {isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => handleUnassign(member.id)}
-                        className="text-blue-600 hover:text-red-600 transition-colors"
-                        disabled={isLoading}
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                ))
+      <div className="fixed inset-0 bg-black bg-opacity-50 z-40 flex justify-center items-start p-4 pt-8 overflow-y-auto">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl my-8">
+          {/* Header */}
+          <div className="flex items-center justify-between p-6 border-b border-gray-100">
+            <div className="flex-1">
+              {isEditing ? (
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  onKeyDown={handleKeyPress}
+                  className="text-2xl font-bold text-gray-900 w-full border-none outline-none bg-transparent resize-none"
+                  disabled={isLoading}
+                  autoFocus
+                />
               ) : (
-                <p className="text-sm text-gray-500 italic">
-                  No members assigned
-                </p>
+                <h2 className="text-2xl font-bold text-gray-900">{card.title}</h2>
               )}
             </div>
-            {/* Assign New Member - Admin only */}
-            {isAdmin && getAvailableMembers().length > 0 && (
-              <select
-                onChange={(e) => {
-                  if (e.target.value) {
-                    handleAssign(e.target.value);
-                    e.target.value = "";
-                  }
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                disabled={isLoading}
-                value=""
-              >
-                <option value="">+ Assign Member</option>
-                {getAvailableMembers().map((member) => {
-                  return (
-                    <option
-                      key={`available-${member.User.id}`}
-                      value={member.User.id} // ✅ use actual userId
-                    >
-                      {member.User.name}
-                    </option>
-                  );
-                })}
-              </select>
-            )}
-
-            {isAdmin &&
-              getAvailableMembers().length === 0 &&
-              assignedMembers.length < members.length && (
-                <p className="text-sm text-gray-500 italic">
-                  All members are assigned
-                </p>
+            
+            <div className="flex items-center gap-2 ml-4">
+              {!isEditing && (
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                  title="Edit card"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                </button>
               )}
+              
+              <button
+                onClick={() => setDeleteConfirmOpen(true)}
+                className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                title="Delete card"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+              
+              <button
+                onClick={() => setIsExpanded(false)}
+                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Close"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           </div>
 
-          {/* Comments */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Comments
-            </label>
-            <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-md p-3 mb-3 bg-gray-50">
-              {isLoadingComments ? (
-                <p className="text-sm text-gray-500">Loading comments...</p>
-              ) : comments.length > 0 ? (
-                <div className="space-y-2">
-                  {comments.map((comment) => (
+          <div className="p-6 space-y-8">
+            {/* Description */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-800 mb-3">
+                Description
+              </label>
+              {isEditing ? (
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Add a description for this card..."
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  rows={4}
+                  disabled={isLoading}
+                />
+              ) : (
+                <div className="px-4 py-3 bg-gray-50 rounded-lg min-h-[100px]">
+                  {card.description ? (
+                    <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">
+                      {card.description}
+                    </p>
+                  ) : (
+                    <p className="text-gray-400 italic">No description provided</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Assignees */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-800 mb-3">
+                Assigned Members ({assignedMembers.length})
+              </label>
+              
+              <div className="flex flex-wrap gap-3 mb-4">
+                {assignedMembers.length > 0 ? (
+                  assignedMembers.map((member) => (
                     <div
-                      key={comment.id}
-                      className="bg-white p-2 rounded border flex justify-between items-start"
+                      key={`assigned-${member.id}`}
+                      className={`flex items-center gap-3 px-4 py-2 rounded-lg border ${
+                        String(member.id) === String(currentUser?.id)
+                          ? "bg-green-50 border-green-200 text-green-800"
+                          : "bg-blue-50 border-blue-200 text-blue-800"
+                      }`}
                     >
-                      <div className="flex-1">
-                        <div className="text-xs font-medium text-gray-700">
-                          {getCommentUserName(comment)}
-                        </div>
-                        <div className="text-sm text-gray-600 mt-1">
-                          {getCommentText(comment)}
-                        </div>
+                      <div className="w-8 h-8 rounded-full bg-current bg-opacity-20 flex items-center justify-center text-sm font-semibold">
+                        {String(member.name || "U").charAt(0).toUpperCase()}
                       </div>
-                      {(isAdmin ||
-                        String(comment.userId) === String(currentUser?.id)) && (
+                      <span className="font-medium">{member.name || "Unknown"}</span>
+                      {isAdmin && (
                         <button
-                          onClick={() => handleDeleteComment(comment.id)}
-                          className="text-red-500 hover:text-red-700 text-xs ml-2 px-2 py-1 hover:bg-red-50 rounded transition-colors"
+                          type="button"
+                          onClick={() => handleUnassign(member.id)}
+                          className="ml-2 p-1 hover:bg-red-100 hover:text-red-600 rounded transition-colors"
+                          disabled={isLoading}
                         >
-                          Delete
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
                         </button>
                       )}
                     </div>
-                  ))}
+                  ))
+                ) : (
+                  <div className="text-gray-400 italic px-4 py-8 bg-gray-50 rounded-lg w-full text-center">
+                    No members assigned to this card
+                  </div>
+                )}
+              </div>
+
+              {/* Assign Member Dropdown */}
+              {isAdmin && availableMembers.length > 0 && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowAssignDropdown(!showAssignDropdown)}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors"
+                    disabled={isLoading}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                    Assign Member
+                  </button>
+                  
+                  {showAssignDropdown && (
+                    <div className="absolute top-full left-0 mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+                      <div className="p-2 border-b border-gray-100">
+                        <p className="text-sm font-medium text-gray-700">Available Members</p>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto">
+                        {availableMembers.map((member) => (
+                          <button
+                            key={`available-${member.User.id}`}
+                            onClick={() => handleAssign(member.User.id)}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                            disabled={isLoading}
+                          >
+                            <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-sm font-semibold text-gray-700">
+                              {String(member.User.name || "U").charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="font-medium text-gray-900">{member.User.name}</div>
+                              {member.User.email && (
+                                <div className="text-sm text-gray-500">{member.User.email}</div>
+                              )}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <p className="text-sm text-gray-500 italic">No comments yet</p>
               )}
             </div>
-            <form onSubmit={handleAddComment} className="flex gap-2">
-              <input
-                value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
-                placeholder="Write a comment..."
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                disabled={isLoading}
-              />
-              <button
-                type="submit"
-                disabled={!newComment.trim() || isLoading}
-                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                Add
-              </button>
-            </form>
+
+            {/* Comments Section */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-800 mb-3">
+                Comments ({comments.length})
+              </label>
+              
+              {/* Add Comment Form */}
+              <form onSubmit={handleAddComment} className="mb-6">
+                <div className="flex gap-3">
+                  <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-semibold flex-shrink-0">
+                    {String(currentUser?.name || "U").charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1">
+                    <input
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      placeholder="Write a comment..."
+                      className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      disabled={isLoading}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={!newComment.trim() || isLoading}
+                    className="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Post
+                  </button>
+                </div>
+              </form>
+
+              {/* Comments List */}
+              <div className="space-y-4">
+                {isLoadingComments ? (
+                  <div className="text-center py-8">
+                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    <p className="text-gray-500 mt-2">Loading comments...</p>
+                  </div>
+                ) : comments.length > 0 ? (
+                  comments.map((comment) => (
+                    <div key={comment.id} className="flex gap-3 p-4 bg-gray-50 rounded-lg">
+                      <div className="w-8 h-8 rounded-full bg-gray-400 text-white flex items-center justify-center text-sm font-semibold flex-shrink-0">
+                        {String(getCommentUserName(comment) || "U").charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium text-gray-900">
+                            {getCommentUserName(comment)}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {comment.createdAt ? new Date(comment.createdAt).toLocaleDateString() : ""}
+                          </span>
+                        </div>
+                        <p className="text-gray-700 leading-relaxed">
+                          {getCommentText(comment)}
+                        </p>
+                      </div>
+                      {(isAdmin || String(comment.userId) === String(currentUser?.id)) && (
+                        <button
+                          onClick={() => handleDeleteComment(comment.id)}
+                          className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-gray-400 italic">
+                    No comments yet. Be the first to comment!
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex gap-2 pt-4 border-t border-gray-200">
-            <button
-              onClick={handleSave}
-              disabled={isLoading || !title.trim()}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {isLoading ? "Saving..." : "Save Changes"}
-            </button>
-            <button
-              onClick={handleCancel}
-              disabled={isLoading}
-              className="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-300 disabled:opacity-50 transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
+          {/* Footer Actions */}
+          {isEditing && (
+            <div className="px-6 py-4 bg-gray-50 rounded-b-xl flex justify-end gap-3 border-t border-gray-100">
+              <button
+                onClick={handleCancel}
+                disabled={isLoading}
+                className="px-6 py-2.5 text-gray-700 font-medium rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={isLoading || !title.trim()}
+                className="px-6 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isLoading ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
+  // Compact Card View
   return (
     <>
       <ConfirmationModal
         isOpen={isDeleteConfirmOpen}
         onClose={() => setDeleteConfirmOpen(false)}
         onConfirm={handleDelete}
-        title="Delete Card?"
+        title="Delete Card"
       >
-        Are you sure you want to delete the card "<strong>{card.title}</strong>
-        "? This action cannot be undone.
+        Are you sure you want to delete the card "<strong>{card.title}</strong>"? 
+        This action cannot be undone and will remove all comments and assignments.
       </ConfirmationModal>
 
       <Draggable draggableId={String(card.id)} index={index}>
@@ -502,98 +588,119 @@ const Card = ({ card, index, members = [], onCardUpdate }) => {
             ref={provided.innerRef}
             {...provided.draggableProps}
             {...provided.dragHandleProps}
-            className={`bg-white border border-gray-200 rounded-lg shadow-sm p-4 cursor-pointer hover:shadow-md hover:border-gray-300 transition-all group relative ${
+            className={`bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 group relative overflow-hidden ${
               snapshot.isDragging
-                ? "shadow-lg border-blue-500 ring-2 ring-blue-500 rotate-2"
-                : ""
+                ? "shadow-xl border-blue-400 ring-2 ring-blue-100 rotate-1 scale-105"
+                : "hover:border-gray-300"
             }`}
-            onClick={() => setIsEditing(true)}
           >
-            <div className="flex justify-between items-start">
-              <div className="flex-1 pr-2">
-                <h4 className="text-sm font-semibold text-gray-900 mb-2 leading-5">
+            {/* Card Content */}
+            <div className="p-5">
+              {/* Header */}
+              <div className="flex items-start justify-between mb-4">
+                <h4 
+                  className="font-semibold text-gray-900 leading-tight cursor-pointer flex-1 pr-2"
+                  onClick={() => setIsExpanded(true)}
+                >
                   {card.title}
                 </h4>
-                {card.description && (
-                  <p className="text-xs text-gray-600 leading-relaxed line-clamp-3 mb-2">
-                    {card.description}
-                  </p>
-                )}
-              </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDeleteConfirmOpen(true);
-                }}
-                disabled={isLoading}
-                className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-all disabled:opacity-50"
-                title="Delete card"
-              >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeleteConfirmOpen(true);
+                  }}
+                  disabled={isLoading}
+                  className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all disabled:opacity-50"
+                  title="Delete card"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                  />
-                </svg>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Description Preview */}
+              {card.description && (
+                <p 
+                  className="text-sm text-gray-600 leading-relaxed mb-4 line-clamp-2 cursor-pointer"
+                  onClick={() => setIsExpanded(true)}
+                >
+                  {card.description}
+                </p>
+              )}
+
+              {/* Metadata Row */}
+              <div className="flex items-center justify-between">
+                {/* Assignees */}
+                <div className="flex items-center gap-1">
+                  {assignedMembers && assignedMembers.length > 0 ? (
+                    <>
+                      {assignedMembers.slice(0, 3).map((member, idx) => (
+                        <div
+                          key={`avatar-${member.id}`}
+                          className={`w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-white text-xs font-semibold flex items-center justify-center border-2 border-white shadow-sm ${
+                            idx > 0 ? "-ml-2" : ""
+                          }`}
+                          style={{ zIndex: 3 - idx }}
+                          title={member.name}
+                        >
+                          {String(member.name || "U").charAt(0).toUpperCase()}
+                        </div>
+                      ))}
+                      {assignedMembers.length > 3 && (
+                        <div className="w-7 h-7 rounded-full bg-gray-500 text-white text-xs font-semibold flex items-center justify-center border-2 border-white shadow-sm -ml-2">
+                          +{assignedMembers.length - 3}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-xs text-gray-400 px-2 py-1 bg-gray-50 rounded-full">
+                      Unassigned
+                    </div>
+                  )}
+                </div>
+
+                {/* Comments Count */}
+                <div className="flex items-center gap-4">
+                  {comments.length > 0 && (
+                    <div className="flex items-center gap-1 text-xs text-gray-500">
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
+                      </svg>
+                      <span className="font-medium">{comments.length}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Click to expand indicator */}
+            <div className="px-5 pb-4">
+              <button
+                onClick={() => setIsExpanded(true)}
+                className="w-full text-xs text-gray-400 hover:text-blue-600 transition-colors text-center py-2 rounded-lg hover:bg-blue-50"
+              >
+                Click to view details • Drag to move
               </button>
             </div>
 
-            {/* Footer */}
-            <div className="flex items-center justify-between mt-3">
-              <div className="flex items-center gap-1">
-                {assignedMembers && assignedMembers.length > 0 ? (
-                  <>
-                    {assignedMembers.slice(0, 3).map((member) => (
-                      <div
-                        key={`avatar-${member.id}`}
-                        className="w-6 h-6 rounded-full bg-blue-500 text-white text-xs flex items-center justify-center border-2 border-white shadow-sm"
-                        title={member.name}
-                      >
-                        {String(member.name || "U")
-                          .charAt(0)
-                          .toUpperCase()}
-                      </div>
-                    ))}
-                    {assignedMembers.length > 3 && (
-                      <div className="w-6 h-6 rounded-full bg-gray-500 text-white text-xs flex items-center justify-center border-2 border-white shadow-sm">
-                        +{assignedMembers.length - 3}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="text-xs text-gray-400">No assignees</div>
-                )}
-              </div>
-              {comments.length > 0 && (
-                <div className="flex items-center gap-1 text-xs text-gray-500">
-                  <svg
-                    className="w-3 h-3"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                  <span>{comments.length}</span>
-                </div>
-              )}
-            </div>
-            <div className="text-xs text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity mt-2">
-              Click to edit • Drag to move
+            {/* Drag indicator */}
+            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-30 transition-opacity">
+              <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+              </svg>
             </div>
           </div>
         )}
       </Draggable>
+
+      {/* Click outside to close assign dropdown */}
+      {showAssignDropdown && (
+        <div
+          className="fixed inset-0 z-5"
+          onClick={() => setShowAssignDropdown(false)}
+        />
+      )}
     </>
   );
 };

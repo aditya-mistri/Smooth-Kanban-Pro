@@ -38,7 +38,7 @@ const Login = () => {
       socketService.connect();
 
       console.log("🔗 Socket connected, navigating to dashboard...");
-      navigate("/");
+      navigate("/dashboard");
     } catch (error) {
       console.error("❌ Login failed", error);
       if (error.response) {
