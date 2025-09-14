@@ -259,7 +259,7 @@ const Dashboard = () => {
               />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Kanban Pro</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Doom Kanban</h1>
         </div>
         <p className="text-gray-600 text-sm mb-8">
           A real-time, collaborative Kanban board to help you manage projects

@@ -1,7 +1,5 @@
 import { Sequelize } from "sequelize";
 import dotenv from "dotenv";
-import dns from "dns";
-dns.setDefaultResultOrder("ipv4first");
 
 dotenv.config();
 
@@ -17,8 +15,8 @@ const sequelize = connectionString
           require: true,
           rejectUnauthorized: false,
         },
-        connectTimeout: 30000, // optional, increases timeout
-        family: 4, // 👈 force IPv4
+        connectTimeout: 30000, 
+        family: 4,
       },
       logging: false,
     })
