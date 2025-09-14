@@ -409,7 +409,7 @@ const LandingPage = () => {
         <div className="max-w-6xl mx-auto px-6 sm:px-8">
           <div className="flex flex-col md:flex-row justify-between items-center text-center md:text-left">
             <div className="flex items-center space-x-2 mb-4 md:mb-0">
-              <img src="../../public/logo.png" alt="Doom Kanban Logo" />
+              <img src="/logo.png" alt="Doom Kanban Logo" />
 
               <span className="text-xl font-serif font-bold text-white">
                 Doom Kanban
