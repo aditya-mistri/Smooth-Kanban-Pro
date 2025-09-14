@@ -10,7 +10,7 @@ const LandingPage = () => {
         <div className="max-w-6xl mx-auto px-6 sm:px-8 py-6 flex justify-between items-center">
           {/* Logo */}
           <div className="flex items-center space-x-2">
-            <img src="../../public/logo.png" alt="logo" />
+            <img src="/logo.png" alt="logo" />
             <h1 className="text-2xl font-serif font-bold text-gray-900">
               Doom Kanban
             </h1>
