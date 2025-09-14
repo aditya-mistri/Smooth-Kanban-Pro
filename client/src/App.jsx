@@ -1,13 +1,19 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Toaster } from 'react-hot-toast';
+import React from "react";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+} from "react-router-dom";
+import { Toaster } from "react-hot-toast";
 
-import { AuthProvider, useAuth } from './contexts/AuthContext.jsx';
-import Login from './pages/Login.jsx';
-import Signup from './pages/Signup.jsx';
-import Dashboard from './components/DashBoard.jsx';
-import BoardView from './components/BoardView.jsx';
-import LandingPage from './components/LandingPage.jsx';
+import { AuthProvider, useAuth } from "./contexts/AuthContext.jsx";
+import Login from "./pages/Login.jsx";
+import Signup from "./pages/Signup.jsx";
+import Dashboard from "./components/DashBoard.jsx";
+import BoardView from "./components/BoardView.jsx";
+import LandingPage from "./components/LandingPage.jsx";
+import DashboardLayout from "./components/layouts/DashboardLayout.jsx";
 
 const PrivateRoute = ({ children }) => {
   const { isAuthenticated } = useAuth();
@@ -21,7 +27,7 @@ function App() {
         position="bottom-right"
         toastOptions={{
           duration: 4000,
-          style: { background: '#333', color: '#fff' },
+          style: { background: "#333", color: "#fff" },
         }}
       />
       <Router>
@@ -31,23 +37,17 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
 
-          {/* Protected routes */}
+          {/* Protected routes with DashboardLayout */}
           <Route
-            path="/dashboard"
             element={
               <PrivateRoute>
-                <Dashboard />
+                <DashboardLayout />
               </PrivateRoute>
             }
-          />
-          <Route
-            path="/boards/:id"
-            element={
-              <PrivateRoute>
-                <BoardView />
-              </PrivateRoute>
-            }
-          />
+          >
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/boards/:id" element={<BoardView />} />
+          </Route>
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -22,18 +22,20 @@ export default function (socketManager, socketEventHelper) {
         {
           model: Column,
           as: "Columns",
-          include: [{ 
-            model: Card, 
-            as: "Cards",
-            include: [
-              { model: User, as: "Assignees" },
-              { 
-                model: CardComment, 
-                as: "Comments",
-                include: [{ model: User, as: "User" }]
-              },
-            ]
-          }],
+          include: [
+            {
+              model: Card,
+              as: "Cards",
+              include: [
+                { model: User, as: "Assignees" },
+                {
+                  model: CardComment,
+                  as: "Comments",
+                  include: [{ model: User, as: "User" }],
+                },
+              ],
+            },
+          ],
         },
         {
           model: BoardMember,
@@ -48,6 +50,123 @@ export default function (socketManager, socketEventHelper) {
     });
   }
 
+  // ✅ Update board data
+  router.put("/:id", authenticate, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, description } = req.body;
+
+      const board = await Board.findByPk(id);
+      if (!board) return res.status(404).json({ error: "Board not found" });
+
+      // Check if user is owner or admin
+      const isBoardAdmin = await BoardMember.findOne({
+        where: {
+          boardId: id,
+          userId: req.user.id,
+          role: "admin",
+          status: "accepted",
+        },
+      });
+
+      if (board.ownerId !== req.user.id && !isBoardAdmin) {
+        return res.status(403).json({
+          error: "Only board owner or admin can update board details",
+        });
+      }
+
+      // Update board data
+      await board.update({
+        name: name || board.name,
+        description: description || board.description,
+      });
+
+      // Get updated board data with all associations
+      const updatedBoard = await getFullBoardData(id);
+
+      // Emit socket events
+      socketEventHelper.emitBoardUpdated(id, updatedBoard);
+
+      // Send success notification
+      socketEventHelper.emitNotification(req.user.id, {
+        type: NOTIFICATION_TYPES.SUCCESS,
+        title: "Board Updated",
+        message: `Board "${updatedBoard.name}" has been updated successfully`,
+        data: { boardId: id },
+      });
+
+      res.json(updatedBoard);
+    } catch (err) {
+      console.error(err);
+
+      // Send error notification
+      socketEventHelper.emitNotification(req.user.id, {
+        type: NOTIFICATION_TYPES.ERROR,
+        title: "Update Failed",
+        message: "Failed to update board. Please try again.",
+      });
+
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // ✅ Delete a board
+  router.delete("/:id", authenticate, async (req, res) => {
+    try {
+      const board = await Board.findByPk(req.params.id);
+      if (!board) return res.status(404).json({ error: "Board not found" });
+
+      // Check if user is owner or admin
+      const isBoardAdmin = await BoardMember.findOne({
+        where: {
+          boardId: board.id,
+          userId: req.user.id,
+          role: "admin",
+          status: "accepted",
+        },
+      });
+
+      if (board.ownerId !== req.user.id && !isBoardAdmin) {
+        return res
+          .status(403)
+          .json({ error: "Only board owner or admin can delete the board" });
+      }
+
+      // Delete associated data (this will cascade to columns, cards, etc.)
+      await board.destroy();
+
+      // Emit socket events
+      socketEventHelper.emitBoardDeleted(board.id, board.name);
+
+      // Send success notification to owner
+      socketEventHelper.emitNotification(req.user.id, {
+        type: NOTIFICATION_TYPES.SUCCESS,
+        title: "Board Deleted",
+        message: `Board "${board.name}" has been deleted successfully`,
+      });
+
+      // Notify board members
+      const boardMembers = await BoardMember.findAll({
+        where: { boardId: board.id },
+      });
+
+      boardMembers.forEach((member) => {
+        if (member.userId !== req.user.id) {
+          socketEventHelper.emitNotification(member.userId, {
+            type: NOTIFICATION_TYPES.WARNING,
+            title: "Board Deleted",
+            message: `The board "${board.name}" has been deleted by ${req.user.name}`,
+          });
+        }
+      });
+
+      res.status(204).send();
+    } catch (err) {
+      console.error("Delete board error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   // ✅ Get board by ID (if owner or member)
   router.get("/:id", authenticate, async (req, res) => {
     try {
@@ -59,7 +178,7 @@ export default function (socketManager, socketEventHelper) {
       const isMember = await BoardMember.findOne({
         where: { boardId: board.id, userId: req.user.id, status: "accepted" },
       });
-      
+
       if (!isOwner && !isMember) {
         return res.status(403).json({ error: "Access denied" });
       }
@@ -67,7 +186,9 @@ export default function (socketManager, socketEventHelper) {
       // Join user to board room for real-time updates
       const userSocket = socketManager.connectedUsers.get(req.user.id);
       if (userSocket) {
-        socketManager.io.sockets.sockets.get(userSocket)?.join(board.id.toString());
+        socketManager.io.sockets.sockets
+          .get(userSocket)
+          ?.join(board.id.toString());
       }
 
       // Emit online users update
@@ -105,26 +226,26 @@ export default function (socketManager, socketEventHelper) {
 
       // Emit socket events
       socketEventHelper.emitBoardCreated(boardWithAssociations, req.user.id);
-      
+
       // Send success notification to creator
       socketEventHelper.emitNotification(req.user.id, {
         type: NOTIFICATION_TYPES.SUCCESS,
-        title: 'Board Created',
+        title: "Board Created",
         message: `Board "${name}" has been created successfully`,
-        data: { boardId: board.id }
+        data: { boardId: board.id },
       });
 
       res.status(201).json(boardWithAssociations);
     } catch (err) {
       console.error(err);
-      
+
       // Send error notification
       socketEventHelper.emitNotification(req.user.id, {
         type: NOTIFICATION_TYPES.ERROR,
-        title: 'Board Creation Failed',
-        message: 'Failed to create board. Please try again.'
+        title: "Board Creation Failed",
+        message: "Failed to create board. Please try again.",
       });
-      
+
       res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -140,9 +261,9 @@ export default function (socketManager, socketEventHelper) {
 
         const member = await BoardMember.findOne({
           where: { boardId: boardId, userId: userId },
-          include: [{ model: User, as: "User" }]
+          include: [{ model: User, as: "User" }],
         });
-        
+
         if (!member) return res.status(404).json({ error: "Member not found" });
 
         const removedUserData = member.User;
@@ -158,7 +279,8 @@ export default function (socketManager, socketEventHelper) {
         // Force disconnect the removed user from board room
         const removedUserSocket = socketManager.connectedUsers.get(userId);
         if (removedUserSocket) {
-          const socket = socketManager.io.sockets.sockets.get(removedUserSocket);
+          const socket =
+            socketManager.io.sockets.sockets.get(removedUserSocket);
           if (socket) {
             socket.leave(boardId.toString());
           }
@@ -167,16 +289,16 @@ export default function (socketManager, socketEventHelper) {
         // Send notifications
         socketEventHelper.emitNotification(userId, {
           type: NOTIFICATION_TYPES.WARNING,
-          title: 'Removed from Board',
+          title: "Removed from Board",
           message: `You have been removed from the board "${updatedBoard.name}"`,
-          data: { boardId }
+          data: { boardId },
         });
 
         socketEventHelper.emitNotification(req.user.id, {
           type: NOTIFICATION_TYPES.SUCCESS,
-          title: 'Member Removed',
+          title: "Member Removed",
           message: `${removedUserData.name} has been removed from the board`,
-          data: { boardId }
+          data: { boardId },
         });
 
         res.status(204).send();
@@ -202,7 +324,9 @@ export default function (socketManager, socketEventHelper) {
         }
 
         if (!inviteeEmail || typeof inviteeEmail !== "string") {
-          return res.status(400).json({ error: "Valid invitee email required" });
+          return res
+            .status(400)
+            .json({ error: "Valid invitee email required" });
         }
 
         const board = await Board.findByPk(req.params.id);
@@ -240,25 +364,29 @@ export default function (socketManager, socketEventHelper) {
 
         // Emit socket events
         socketEventHelper.emitInviteSent(req.user.id, invite);
-        
+
         // Send notification to invitee
         socketEventHelper.emitNotification(user.id, {
           type: NOTIFICATION_TYPES.INFO,
-          title: 'Board Invitation',
+          title: "Board Invitation",
           message: `You have been invited to join "${board.name}" by ${req.user.name}`,
-          data: { inviteId: invite.id, boardId: board.id, boardName: board.name }
+          data: {
+            inviteId: invite.id,
+            boardId: board.id,
+            boardName: board.name,
+          },
         });
 
         res.status(201).json(invite);
       } catch (err) {
         console.error("Invite error:", err);
-        
+
         socketEventHelper.emitNotification(req.user.id, {
           type: NOTIFICATION_TYPES.ERROR,
-          title: 'Invitation Failed',
-          message: 'Failed to send invitation. Please try again.'
+          title: "Invitation Failed",
+          message: "Failed to send invitation. Please try again.",
         });
-        
+
         res.status(500).json({ error: "Internal server error" });
       }
     }
@@ -277,9 +405,9 @@ export default function (socketManager, socketEventHelper) {
       });
 
       // Add online status to members
-      const membersWithStatus = members.map(member => ({
+      const membersWithStatus = members.map((member) => ({
         ...member.toJSON(),
-        isOnline: socketManager.isUserOnline(member.userId)
+        isOnline: socketManager.isUserOnline(member.userId),
       }));
 
       res.json(membersWithStatus);
@@ -344,12 +472,12 @@ export default function (socketManager, socketEventHelper) {
       const allBoards = [...ownedBoards, ...filteredMemberBoards];
 
       // Add activity indicators and online member counts
-      const boardsWithActivity = allBoards.map(board => ({
+      const boardsWithActivity = allBoards.map((board) => ({
         ...board.toJSON(),
-        onlineMembersCount: board.Members.filter(member => 
+        onlineMembersCount: board.Members.filter((member) =>
           socketManager.isUserOnline(member.userId)
         ).length,
-        lastActivity: new Date() // You can implement actual last activity tracking
+        lastActivity: new Date(), // You can implement actual last activity tracking
       }));
 
       res.json(boardsWithActivity);
@@ -372,10 +500,10 @@ export default function (socketManager, socketEventHelper) {
         const invite = await Invite.findByPk(req.params.inviteId, {
           include: [
             { model: User, as: "Inviter" },
-            { model: Board, as: "Board" }
-          ]
+            { model: Board, as: "Board" },
+          ],
         });
-        
+
         if (!invite || invite.boardId !== req.params.id)
           return res.status(404).json({ error: "Invite not found" });
         if (invite.inviteeEmail !== req.user.email)
@@ -398,25 +526,39 @@ export default function (socketManager, socketEventHelper) {
           const updatedBoard = await getFullBoardData(invite.boardId);
 
           // Emit socket events
-          socketEventHelper.emitMemberAdded(invite.boardId, {
-            ...newMember.toJSON(),
-            User: req.user
-          }, invite.Inviter);
-          
+          socketEventHelper.emitMemberAdded(
+            invite.boardId,
+            {
+              ...newMember.toJSON(),
+              User: req.user,
+            },
+            invite.Inviter
+          );
+
           socketEventHelper.emitBoardUpdated(invite.boardId, updatedBoard);
-          socketEventHelper.emitInviteAccepted(invite.boardId, invite.Inviter, req.user);
+          socketEventHelper.emitInviteAccepted(
+            invite.boardId,
+            invite.Inviter,
+            req.user
+          );
 
           // Join user to board room
           const userSocket = socketManager.connectedUsers.get(req.user.id);
           if (userSocket) {
-            socketManager.io.sockets.sockets.get(userSocket)?.join(invite.boardId.toString());
+            socketManager.io.sockets.sockets
+              .get(userSocket)
+              ?.join(invite.boardId.toString());
           }
 
           // Update online users
           await socketEventHelper.emitOnlineUsersUpdate(invite.boardId);
         } else {
           // Emit decline notification
-          socketEventHelper.emitInviteDeclined(invite.Inviter, req.user, invite.boardId);
+          socketEventHelper.emitInviteDeclined(
+            invite.Inviter,
+            req.user,
+            invite.boardId
+          );
         }
 
         res.json({ success: true, status: invite.status });
@@ -431,7 +573,7 @@ export default function (socketManager, socketEventHelper) {
   router.get("/:boardId/online-users", authenticate, async (req, res) => {
     try {
       const { boardId } = req.params;
-      
+
       // Verify user has access to board
       const board = await Board.findByPk(boardId);
       if (!board) return res.status(404).json({ error: "Board not found" });
@@ -440,7 +582,7 @@ export default function (socketManager, socketEventHelper) {
       const isMember = await BoardMember.findOne({
         where: { boardId: boardId, userId: req.user.id, status: "accepted" },
       });
-      
+
       if (!isOwner && !isMember) {
         return res.status(403).json({ error: "Access denied" });
       }
@@ -450,7 +592,7 @@ export default function (socketManager, socketEventHelper) {
         boardId,
         onlineUsers,
         count: onlineUsers.length,
-        timestamp: new Date()
+        timestamp: new Date(),
       });
     } catch (err) {
       console.error(err);

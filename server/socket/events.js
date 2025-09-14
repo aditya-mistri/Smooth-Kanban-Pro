@@ -3,71 +3,71 @@
 // Socket Event Constants
 export const SOCKET_EVENTS = {
   // Connection events
-  CONNECTION: 'connection',
-  DISCONNECT: 'disconnect',
-  RECONNECT: 'reconnect',
-  
+  CONNECTION: "connection",
+  DISCONNECT: "disconnect",
+  RECONNECT: "reconnect",
+
   // Board events
-  JOIN_BOARD: 'join_board',
-  LEAVE_BOARD: 'leave_board',
-  BOARD_UPDATED: 'board_updated',
-  BOARD_CREATED: 'board_created',
-  BOARD_DELETED: 'board_deleted',
-  USER_JOINED_BOARD: 'user_joined_board',
-  USER_LEFT_BOARD: 'user_left_board',
-  
+  JOIN_BOARD: "join_board",
+  LEAVE_BOARD: "leave_board",
+  BOARD_UPDATED: "board_updated",
+  BOARD_CREATED: "board_created",
+  BOARD_DELETED: "board_deleted",
+  USER_JOINED_BOARD: "user_joined_board",
+  USER_LEFT_BOARD: "user_left_board",
+
   // Column events
-  COLUMN_CREATED: 'column_created',
-  COLUMN_UPDATED: 'column_updated',
-  COLUMN_DELETED: 'column_deleted',
-  COLUMNS_REORDERED: 'columns_reordered',
-  
+  COLUMN_CREATED: "column_created",
+  COLUMN_UPDATED: "column_updated",
+  COLUMN_DELETED: "column_deleted",
+  COLUMNS_REORDERED: "columns_reordered",
+
   // Card events
-  CARD_CREATED: 'card_created',
-  CARD_UPDATED: 'card_updated',
-  CARD_DELETED: 'card_deleted',
-  CARD_MOVED: 'card_moved',
-  CARD_ASSIGNED: 'card_assigned',
-  CARD_UNASSIGNED: 'card_unassigned',
-  CARD_COMMENT_ADDED: 'card_comment_added',
-  CARD_STATUS_CHANGED: 'card_status_changed',
-  
+  CARD_CREATED: "card_created",
+  CARD_UPDATED: "card_updated",
+  CARD_DELETED: "card_deleted",
+  CARD_MOVED: "card_moved",
+  CARD_ASSIGNED: "card_assigned",
+  CARD_UNASSIGNED: "card_unassigned",
+  CARD_COMMENT_ADDED: "card_comment_added",
+  CARD_STATUS_CHANGED: "card_status_changed",
+
   // Member events
-  MEMBER_ADDED: 'member_added',
-  MEMBER_REMOVED: 'member_removed',
-  MEMBER_UPDATED: 'member_updated',
-  MEMBER_ROLE_CHANGED: 'member_role_changed',
-  
+  MEMBER_ADDED: "member_added",
+  MEMBER_REMOVED: "member_removed",
+  MEMBER_UPDATED: "member_updated",
+  MEMBER_ROLE_CHANGED: "member_role_changed",
+
   // Invite events
-  INVITE_SENT: 'invite_sent',
-  INVITE_ACCEPTED: 'invite_accepted',
-  INVITE_DECLINED: 'invite_declined',
-  
+  INVITE_SENT: "invite_sent",
+  INVITE_ACCEPTED: "invite_accepted",
+  INVITE_DECLINED: "invite_declined",
+
   // Real-time collaboration
-  TYPING_START: 'typing_start',
-  TYPING_STOP: 'typing_stop',
-  USER_TYPING: 'user_typing',
-  CURSOR_MOVE: 'cursor_move',
-  USER_CURSOR: 'user_cursor',
-  
+  TYPING_START: "typing_start",
+  TYPING_STOP: "typing_stop",
+  USER_TYPING: "user_typing",
+  CURSOR_MOVE: "cursor_move",
+  USER_CURSOR: "user_cursor",
+
   // User presence
-  USER_ONLINE: 'user_online',
-  USER_OFFLINE: 'user_offline',
-  USER_DISCONNECTED: 'user_disconnected',
-  ONLINE_USERS_UPDATE: 'online_users_update',
-  
+  USER_ONLINE: "user_online",
+  USER_OFFLINE: "user_offline",
+  USER_DISCONNECTED: "user_disconnected",
+  ONLINE_USERS_UPDATE: "online_users_update",
+
   // Notifications
-  NOTIFICATION: 'notification',
-  SYSTEM_NOTIFICATION: 'system_notification',
-  ERROR_NOTIFICATION: 'error_notification'
+  NOTIFICATION: "notification",
+  SYSTEM_NOTIFICATION: "system_notification",
+  ERROR_NOTIFICATION: "error_notification",
 };
 
 // Notification Types
 export const NOTIFICATION_TYPES = {
-  SUCCESS: 'success',
-  ERROR: 'error',
-  WARNING: 'warning',
-  INFO: 'info'
+  SUCCESS: "success",
+  ERROR: "error",
+  WARNING: "warning",
+  INFO: "info",
 };
 
 // Socket Event Helpers
@@ -81,23 +81,38 @@ export class SocketEventHelper {
     const eventData = {
       boardId,
       board: boardData,
-      timestamp: new Date()
+      timestamp: new Date(),
     };
 
     if (excludeUserId) {
-      this.socketManager.io.to(boardId.toString()).except(
-        this.socketManager.connectedUsers.get(excludeUserId)
-      ).emit(SOCKET_EVENTS.BOARD_UPDATED, eventData);
+      this.socketManager.io
+        .to(boardId.toString())
+        .except(this.socketManager.connectedUsers.get(excludeUserId))
+        .emit(SOCKET_EVENTS.BOARD_UPDATED, eventData);
     } else {
-      this.socketManager.emitToBoard(boardId, SOCKET_EVENTS.BOARD_UPDATED, eventData);
+      this.socketManager.emitToBoard(
+        boardId,
+        SOCKET_EVENTS.BOARD_UPDATED,
+        eventData
+      );
     }
   }
 
   emitBoardCreated(boardData, userId) {
     this.socketManager.emitToUser(userId, SOCKET_EVENTS.BOARD_CREATED, {
       board: boardData,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
+  }
+
+  emitBoardDeleted(boardId, boardName) {
+    this.socketManager.io
+      .to(boardId.toString())
+      .emit(SOCKET_EVENTS.BOARD_DELETED, {
+        id: boardId,
+        name: boardName,
+        timestamp: new Date(),
+      });
   }
 
   // Column-related events
@@ -105,7 +120,7 @@ export class SocketEventHelper {
     this.socketManager.emitToBoard(boardId, SOCKET_EVENTS.COLUMN_CREATED, {
       boardId,
       column: columnData,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
   }
 
@@ -113,7 +128,7 @@ export class SocketEventHelper {
     this.socketManager.emitToBoard(boardId, SOCKET_EVENTS.COLUMN_UPDATED, {
       boardId,
       column: columnData,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
   }
 
@@ -121,7 +136,7 @@ export class SocketEventHelper {
     this.socketManager.emitToBoard(boardId, SOCKET_EVENTS.COLUMN_DELETED, {
       boardId,
       columnId,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
   }
 
@@ -129,7 +144,7 @@ export class SocketEventHelper {
     this.socketManager.emitToBoard(boardId, SOCKET_EVENTS.COLUMNS_REORDERED, {
       boardId,
       columns: orderedColumns,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
   }
 
@@ -138,7 +153,7 @@ export class SocketEventHelper {
     this.socketManager.emitToBoard(boardId, SOCKET_EVENTS.CARD_CREATED, {
       boardId,
       card: cardData,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
   }
 
@@ -147,7 +162,7 @@ export class SocketEventHelper {
       boardId,
       card: cardData,
       updatedFields,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
   }
 
@@ -157,7 +172,7 @@ export class SocketEventHelper {
       card: cardData,
       fromColumnId,
       toColumnId,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
   }
 
@@ -166,7 +181,7 @@ export class SocketEventHelper {
       boardId,
       cardId,
       columnId,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
   }
 
@@ -177,15 +192,15 @@ export class SocketEventHelper {
       cardId,
       assignee: assigneeData,
       assigner,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
 
     // Send notification to the assigned user
     this.emitNotification(assigneeData.id, {
       type: NOTIFICATION_TYPES.INFO,
-      title: 'Card Assignment',
+      title: "Card Assignment",
       message: `You have been assigned to a card by ${assigner.name}`,
-      data: { cardId, boardId }
+      data: { cardId, boardId },
     });
   }
 
@@ -195,7 +210,7 @@ export class SocketEventHelper {
       cardId,
       unassignedUser,
       unassigner,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
   }
 
@@ -206,7 +221,7 @@ export class SocketEventHelper {
       cardId,
       comment: commentData,
       author,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
   }
 
@@ -216,15 +231,15 @@ export class SocketEventHelper {
       boardId,
       member: memberData,
       inviter,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
 
     // Send notification to the new member
     this.emitNotification(memberData.userId, {
       type: NOTIFICATION_TYPES.SUCCESS,
-      title: 'Board Access Granted',
+      title: "Board Access Granted",
       message: `You have been added to the board by ${inviter.name}`,
-      data: { boardId }
+      data: { boardId },
     });
   }
 
@@ -233,15 +248,15 @@ export class SocketEventHelper {
       boardId,
       removedMember,
       remover,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
 
     // Send notification to the removed member
     this.emitNotification(removedMember.userId, {
       type: NOTIFICATION_TYPES.WARNING,
-      title: 'Board Access Removed',
+      title: "Board Access Removed",
       message: `You have been removed from the board`,
-      data: { boardId }
+      data: { boardId },
     });
   }
 
@@ -249,27 +264,27 @@ export class SocketEventHelper {
   emitInviteSent(inviterId, inviteData) {
     this.emitNotification(inviterId, {
       type: NOTIFICATION_TYPES.SUCCESS,
-      title: 'Invite Sent',
+      title: "Invite Sent",
       message: `Invitation sent to ${inviteData.inviteeEmail}`,
-      data: { inviteId: inviteData.id, boardId: inviteData.boardId }
+      data: { inviteId: inviteData.id, boardId: inviteData.boardId },
     });
   }
 
   emitInviteAccepted(boardId, inviterData, acceptedUser) {
     this.emitNotification(inviterData.id, {
       type: NOTIFICATION_TYPES.SUCCESS,
-      title: 'Invite Accepted',
+      title: "Invite Accepted",
       message: `${acceptedUser.name} accepted your board invitation`,
-      data: { boardId }
+      data: { boardId },
     });
   }
 
   emitInviteDeclined(inviterData, declinedUser, boardId) {
     this.emitNotification(inviterData.id, {
       type: NOTIFICATION_TYPES.INFO,
-      title: 'Invite Declined',
+      title: "Invite Declined",
       message: `${declinedUser.name} declined your board invitation`,
-      data: { boardId }
+      data: { boardId },
     });
   }
 
@@ -286,7 +301,7 @@ export class SocketEventHelper {
   emitSystemNotification(notification) {
     this.socketManager.io.emit(SOCKET_EVENTS.SYSTEM_NOTIFICATION, {
       ...notification,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
   }
 
@@ -297,7 +312,7 @@ export class SocketEventHelper {
       boardId,
       onlineUsers,
       count: onlineUsers.length,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
   }
 }
@@ -308,6 +323,6 @@ export function createSocketEventData(eventType, data, additionalData = {}) {
     event: eventType,
     timestamp: new Date(),
     ...data,
-    ...additionalData
+    ...additionalData,
   };
 }

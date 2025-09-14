@@ -259,15 +259,6 @@ const Column = ({ column, index, boardId, members, onColumnUpdated, onColumnDele
               </button>
             )}
           </div>
-
-          {/* Debug Info */}
-          {process.env.NODE_ENV === "development" && (
-            <div className="mt-2 p-2 bg-gray-100 rounded text-xs text-gray-600">
-              <p>Column ID: {column.id}</p>
-              <p>Cards: {cards.length}</p>
-              <p>Members: {members.length}</p>
-            </div>
-          )}
         </div>
       )}
     </Draggable>
